@@ -1,11 +1,14 @@
 """
 Mouth shape similarity analysis for IPA phonemes.
 Calculates similarity based on articulatory features and IPA chart proximity.
+
+IMPORTANT: Vowels and consonants are on SEPARATE coordinate planes.
+Similarity between a vowel and consonant is always 0 (incomparable).
 """
 
 import numpy as np
 from typing import Dict, List, Tuple, Optional
-from .data import IPA_VOWELS, IPA_CONSONANTS, ARTICULATORY_FEATURES
+from .data import IPA_VOWELS, IPA_CONSONANTS, ARTICULATORY_FEATURES, VOWEL_COORD_INFO, CONSONANT_COORD_INFO
 
 
 class MouthShapeSimilarity:
@@ -20,28 +23,34 @@ class MouthShapeSimilarity:
         self.feature_vectors = self._compute_feature_vectors()
     
     def _compute_feature_vectors(self) -> Dict[str, np.ndarray]:
-        """Compute feature vectors for all phonemes."""
+        """
+        Compute feature vectors for all phonemes.
+        
+        Vowels and consonants have SEPARATE vector spaces:
+        - Vowels: [x_coord, y_coord, roundedness] on trapezoid plane
+        - Consonants: [x_coord, y_coord, voicing] on grid plane
+        
+        These vectors should NEVER be compared across types.
+        """
         vectors = {}
         
-        # Vowel feature vectors: [height, backness, roundedness, x_coord, y_coord]
+        # Vowel feature vectors based on trapezoid coordinates
+        # Vector: [x (backness), y (height), roundedness]
         for symbol, (x, y, height, backness, roundedness, _) in self.vowel_data.items():
             vector = np.array([
-                self.features['vowel_height'][height],
-                self.features['vowel_backness'][backness],
-                self.features['vowel_roundedness'][roundedness],
-                x,  # IPA chart x coordinate
-                y   # IPA chart y coordinate
+                x,  # Trapezoid x coordinate (backness: 0=front, 2=back)
+                y,  # Trapezoid y coordinate (height: 0=close, 3=open)
+                self.features['vowel_roundedness'][roundedness]
             ], dtype=float)
             vectors[symbol] = vector
         
-        # Consonant feature vectors: [place, manner, voicing, x_coord, y_coord]
+        # Consonant feature vectors based on grid coordinates
+        # Vector: [x (place), y (manner), voicing]
         for symbol, (x, y, manner, place, voicing, _) in self.consonant_data.items():
             vector = np.array([
-                self.features['consonant_place'][place],
-                self.features['consonant_manner'][manner],
-                self.features['consonant_voicing'][voicing],
-                x,  # IPA chart x coordinate
-                y   # IPA chart y coordinate
+                x,  # Grid x coordinate (place: 0=bilabial, 10=glottal)
+                y,  # Grid y coordinate (manner: 0=plosive, 7=lateral approx)
+                self.features['consonant_voicing'][voicing]
             ], dtype=float)
             vectors[symbol] = vector
         
@@ -49,7 +58,10 @@ class MouthShapeSimilarity:
     
     def phoneme_similarity(self, phoneme1: str, phoneme2: str) -> float:
         """
-        Calculate similarity between two phonemes.
+        Calculate similarity between two phonemes based on mouth shape proximity.
+        
+        IMPORTANT: Vowels and consonants are on SEPARATE coordinate planes.
+        Comparing a vowel to a consonant returns 0.0 (incomparable).
         
         Args:
             phoneme1: First phoneme symbol
@@ -66,30 +78,40 @@ class MouthShapeSimilarity:
         both_consonants = phoneme1 in self.consonant_data and phoneme2 in self.consonant_data
         
         if not (both_vowels or both_consonants):
-            # Different types (vowel vs consonant) - lower similarity
-            return 0.1
+            # Different types (vowel vs consonant) - INCOMPARABLE on different planes
+            return 0.0
         
-        # Calculate Euclidean distance between feature vectors
+        # Get vectors
         vector1 = self.feature_vectors[phoneme1]
         vector2 = self.feature_vectors[phoneme2]
         
-        # Normalize vectors to prevent scale issues
-        vector1_norm = vector1 / np.linalg.norm(vector1)
-        vector2_norm = vector2 / np.linalg.norm(vector2)
+        if both_vowels:
+            # Vowel similarity based on trapezoid distance
+            # Max distance on vowel trapezoid: ~3.6 (diagonal from i to ɒ)
+            max_distance = 3.6
+            euclidean_distance = np.linalg.norm(vector1[:2] - vector2[:2])
+            
+            # Roundedness penalty (different roundedness = less similar)
+            roundedness_match = 1.0 if vector1[2] == vector2[2] else 0.8
+            
+            # Distance-based similarity
+            distance_sim = 1 - (euclidean_distance / max_distance)
+            
+            return max(0, min(1, distance_sim * roundedness_match))
         
-        # Calculate cosine similarity
-        cosine_sim = np.dot(vector1_norm, vector2_norm)
-        
-        # Calculate weighted distance similarity (closer = more similar)
-        max_distance = np.sqrt(5**2 + 10**2)  # Maximum possible distance in feature space
-        euclidean_distance = np.linalg.norm(vector1 - vector2)
-        distance_sim = 1 - (euclidean_distance / max_distance)
-        
-        # Combine similarities (weighted average)
-        combined_similarity = 0.7 * cosine_sim + 0.3 * distance_sim
-        
-        # Ensure result is between 0 and 1
-        return max(0, min(1, combined_similarity))
+        else:  # both_consonants
+            # Consonant similarity based on grid distance
+            # Max distance on consonant grid: ~12.7 (diagonal from p to ʟ)
+            max_distance = 12.7
+            euclidean_distance = np.linalg.norm(vector1[:2] - vector2[:2])
+            
+            # Voicing penalty (different voicing = slightly less similar)
+            voicing_match = 1.0 if vector1[2] == vector2[2] else 0.9
+            
+            # Distance-based similarity
+            distance_sim = 1 - (euclidean_distance / max_distance)
+            
+            return max(0, min(1, distance_sim * voicing_match))
     
     def similarity_matrix(self, phonemes: List[str]) -> np.ndarray:
         """
@@ -151,27 +173,40 @@ class MouthShapeSimilarity:
     
     def mouth_shape_distance(self, phoneme1: str, phoneme2: str) -> float:
         """
-        Calculate mouth shape distance based on IPA chart coordinates only.
+        Calculate mouth shape distance based on IPA chart coordinates.
+        
+        IMPORTANT: Only valid for phonemes of the same type (both vowels or both consonants).
+        Returns infinity for cross-type comparisons.
         
         Args:
             phoneme1: First phoneme symbol
             phoneme2: Second phoneme symbol
             
         Returns:
-            Euclidean distance between phonemes on IPA chart
+            Euclidean distance between phonemes on their respective IPA chart plane
         """
         if phoneme1 not in self.feature_vectors or phoneme2 not in self.feature_vectors:
             raise ValueError(f"One or both phonemes not found: {phoneme1}, {phoneme2}")
         
-        # Extract only the IPA chart coordinates (last 2 elements)
-        coord1 = self.feature_vectors[phoneme1][-2:]
-        coord2 = self.feature_vectors[phoneme2][-2:]
+        # Check if same type
+        both_vowels = phoneme1 in self.vowel_data and phoneme2 in self.vowel_data
+        both_consonants = phoneme1 in self.consonant_data and phoneme2 in self.consonant_data
+        
+        if not (both_vowels or both_consonants):
+            return float('inf')  # Incomparable - different planes
+        
+        # Extract coordinates (first 2 elements of vector)
+        coord1 = self.feature_vectors[phoneme1][:2]
+        coord2 = self.feature_vectors[phoneme2][:2]
         
         return np.linalg.norm(coord1 - coord2)
     
     def articulatory_feature_distance(self, phoneme1: str, phoneme2: str) -> float:
         """
-        Calculate distance based on articulatory features only.
+        Calculate distance based on all articulatory features.
+        
+        IMPORTANT: Only valid for phonemes of the same type.
+        Returns infinity for cross-type comparisons.
         
         Args:
             phoneme1: First phoneme symbol
@@ -183,11 +218,34 @@ class MouthShapeSimilarity:
         if phoneme1 not in self.feature_vectors or phoneme2 not in self.feature_vectors:
             raise ValueError(f"One or both phonemes not found: {phoneme1}, {phoneme2}")
         
-        # Extract only the articulatory features (first 3 elements)
-        feat1 = self.feature_vectors[phoneme1][:3]
-        feat2 = self.feature_vectors[phoneme2][:3]
+        # Check if same type
+        both_vowels = phoneme1 in self.vowel_data and phoneme2 in self.vowel_data
+        both_consonants = phoneme1 in self.consonant_data and phoneme2 in self.consonant_data
+        
+        if not (both_vowels or both_consonants):
+            return float('inf')  # Incomparable - different types
+        
+        # Full feature vector comparison
+        feat1 = self.feature_vectors[phoneme1]
+        feat2 = self.feature_vectors[phoneme2]
         
         return np.linalg.norm(feat1 - feat2)
+    
+    def is_vowel(self, phoneme: str) -> bool:
+        """Check if phoneme is a vowel."""
+        return phoneme in self.vowel_data
+    
+    def is_consonant(self, phoneme: str) -> bool:
+        """Check if phoneme is a consonant."""
+        return phoneme in self.consonant_data
+    
+    def get_vowels(self) -> List[str]:
+        """Get list of all vowel symbols."""
+        return list(self.vowel_data.keys())
+    
+    def get_consonants(self) -> List[str]:
+        """Get list of all consonant symbols."""
+        return list(self.consonant_data.keys())
     
     def cluster_phonemes(self, phonemes: List[str], n_clusters: int = 3) -> Dict[int, List[str]]:
         """
