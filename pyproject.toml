@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phonemescape"
+version = "0.1.0"
+description = "International Phonetic Alphabet (IPA) library with mouth shape similarity analysis"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Phonemescape Team", email = "phonemescape@example.com"},
+]
+keywords = ["ipa", "phonetics", "linguistics", "phoneme", "similarity", "visualization"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "numpy>=1.20.0",
+    "matplotlib>=3.5.0",
+    "scikit-learn>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov>=2.0",
+    "black>=21.0",
+    "flake8>=3.8",
+    "mypy>=0.800",
+]
+docs = [
+    "sphinx>=4.0",
+    "sphinx-rtd-theme>=1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/phonemescape/phonemescape"
+Repository = "https://github.com/phonemescape/phonemescape"
+Documentation = "https://phonemescape.readthedocs.io/"
+"Bug Tracker" = "https://github.com/phonemescape/phonemescape/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["phonemescape*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
