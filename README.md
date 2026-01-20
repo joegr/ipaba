@@ -274,6 +274,6 @@ If you use this library in your research, please cite:
   title={Phonemescape: International Phonetic Alphabet Library},
   author={Phonemescape Team},
   year={2024},
-  url={https://github.com/phonemescape/phonemescape}
+  url={https://github.com/joegr/ipaba}
 }
 ```
