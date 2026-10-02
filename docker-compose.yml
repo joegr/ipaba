@@ -1,0 +1,16 @@
+# Local Neo4j for the Phonemescape sample graph.
+# Ports are bound to 127.0.0.1 only: the database is never exposed off-host.
+#   docker compose up -d
+#   phonemescape graph init
+services:
+  neo4j:
+    image: neo4j:5-community
+    container_name: phonemescape-neo4j
+    ports:
+      - "127.0.0.1:7474:7474"   # browser: http://localhost:7474
+      - "127.0.0.1:7687:7687"   # bolt:    bolt://localhost:7687
+    environment:
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:-phonemescape-local}"
+    volumes:
+      - ./neo4j-data:/data
+    restart: unless-stopped

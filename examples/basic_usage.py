@@ -73,14 +73,15 @@ def main():
     print("\n4. Word Analysis:")
     print("-" * 30)
     
-    # Analyze some English words in IPA
-    words = ['kæt', 'dɔg', 'hʊmən', 'bɪrd']
+    # Analyze some General American English words (phonemic transcriptions)
+    words = ['/kæt/', '/dɔɡ/', '/ˈhjuːmən/', '/bɝd/', '[kʰæt]']
     
     for word in words:
         analysis = ipa.analyze_word(word)
         print(f"Word '{word}':")
         print(f"  Phonemes: {analysis['phonemes']}")
         print(f"  Vowels: {analysis['n_vowels']}, Consonants: {analysis['n_consonants']}")
+        print(f"  Prosody: {[p['description'] for p in analysis['suprasegmentals']]}")
         print(f"  Average similarity: {analysis['average_similarity']:.3f}")
     
     # Example 5: Find phonemes by features
@@ -98,6 +99,11 @@ def main():
     # Find all voiceless plosives
     voiceless_plosives = ipa.find_phonemes_by_features(manner='plosive', voicing='voiceless')
     print(f"Voiceless plosives: {voiceless_plosives}")
+
+    # Natural classes by distinctive features
+    print(f"Sibilants [+strident]: {ipa.natural_class(strident='+')}")
+    print(f"Glides [-syllabic, -consonantal, +sonorant]: "
+          f"{ipa.natural_class(syllabic='-', consonantal='-', sonorant='+')}")
     
     # Example 6: Similarity matrix
     print("\n6. Similarity Matrix:")
@@ -112,8 +118,16 @@ def main():
     for i, p1 in enumerate(phonemes):
         print(f"{p1:>3} " + "  ".join(f"{similarity_matrix[i,j]:>3.2f}" for j in range(len(phonemes))))
     
-    # Example 7: Clustering
-    print("\n7. Phoneme Clustering:")
+    # Example 7: Distinctive features
+    print("\n7. Distinctive Features:")
+    print("-" * 30)
+    for a, b in [('p', 'b'), ('i', 'j'), ('s', 'ʃ'), ('t', 'tʰ')]:
+        print(f"'{a}' vs '{b}' differ in: {ipa.differing_features(a, b)}")
+    for seg in ['tʰ', 't͡ʃ', 'ã', 'n̩', 'kʼ']:
+        print(f"{seg}: {ipa.get_phoneme_info(seg)['description']}")
+
+    # Example 8: Clustering
+    print("\n8. Phoneme Clustering:")
     print("-" * 30)
     
     # Cluster some phonemes

@@ -1,18 +1,18 @@
 [build-system]
-requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "phonemescape"
-version = "0.1.0"
-description = "International Phonetic Alphabet (IPA) library with mouth shape similarity analysis"
+version = "0.2.0"
+description = "IPA tokenization, distinctive features, articulatory similarity, chart plots and a local Neo4j sample graph"
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [
     {name = "Phonemescape Team", email = "phonemescape@example.com"},
 ]
-keywords = ["ipa", "phonetics", "linguistics", "phoneme", "similarity", "visualization"]
+keywords = ["ipa", "phonetics", "phonology", "linguistics", "phoneme", "distinctive-features", "similarity", "visualization", "neo4j"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
@@ -23,14 +23,19 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
     "numpy>=1.20.0",
     "matplotlib>=3.5.0",
-    "scikit-learn>=1.0.0",
+    "scikit-learn>=1.2.0",
 ]
 
 [project.optional-dependencies]
+graph = [
+    "neo4j>=5.0",
+]
 dev = [
     "pytest>=6.0",
     "pytest-cov>=2.0",
@@ -43,11 +48,13 @@ docs = [
     "sphinx-rtd-theme>=1.0",
 ]
 
+[project.scripts]
+phonemescape = "phonemescape.cli:main"
+
 [project.urls]
-Homepage = "https://github.com/phonemescape/phonemescape"
-Repository = "https://github.com/phonemescape/phonemescape"
-Documentation = "https://phonemescape.readthedocs.io/"
-"Bug Tracker" = "https://github.com/phonemescape/phonemescape/issues"
+Homepage = "https://github.com/joegr/ipaba"
+Repository = "https://github.com/joegr/ipaba"
+"Bug Tracker" = "https://github.com/joegr/ipaba/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -62,6 +69,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = ["neo4j: needs a local Neo4j at bolt://localhost:7687"]
 
 [tool.mypy]
 python_version = "3.8"
