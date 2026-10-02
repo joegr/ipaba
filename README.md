@@ -1,28 +1,33 @@
 # Phonemescape 🗣️
 
-A Python library for International Phonetic Alphabet (IPA) analysis with mouth shape similarity visualization and 2D plotting capabilities.
+A Python library for the International Phonetic Alphabet: tokenizing
+transcriptions, distinctive features and natural classes, articulatory
+similarity, IPA chart plots, and a **local Neo4j graph of phoneme samples**.
 
 ## Features
 
-- **Complete IPA Data**: Comprehensive dataset of vowels and consonants with articulatory features
-- **2D Visualization**: Beautiful plots of vowel and consonant charts based on standard IPA positions
-- **Mouth Shape Similarity**: Calculate similarity between phonemes based on articulatory features and chart proximity
-- **Similarity Networks**: Visualize phoneme relationships as network graphs
-- **Phoneme Analysis**: Analyze words and find similar phonemes
-- **Export Capabilities**: Export data in multiple formats
+- **The full IPA chart (2020 revision)**: all 28 vowels, 59 pulmonic consonants,
+  10 "other symbols" (w ʍ ɥ ʜ ʢ ʡ ɕ ʑ ɺ ɧ), 10 non-pulmonic consonants (clicks and
+  implosives), every diacritic, suprasegmental and tone mark
+- **Real IPA tokenization**: `tʰ`, `ã`, `t͡ʃ`, `n̩`, `kʷʼ`, `uː`, `ⁿd`, stress, tone
+  letters, syllable breaks, `/phonemic/` and `[phonetic]` delimiters, plus aliases
+  for common look-alikes (`g`→`ɡ`, `ʧ`→`t͡ʃ`, `:`→`ː`, `ɚ`, `ɫ` …)
+- **Distinctive features**: 28 binary features (Hayes 2009 + [velaric], [long]),
+  derived by rule from each symbol's chart description, in ONE space shared by
+  vowels and consonants
+- **Articulatory similarity**: feature-based, refined by chart proximity
+- **Natural-class queries**: `natural_class(sonorant='-', continuant='+')`
+- **Chart plots** in the official orientation and geometry
+- **Neo4j sample graph (local only)**: every sample linked to its segments,
+  features, language and to phonetically similar samples
 
 ## Installation
 
 ```bash
-pip install phonemescape
-```
-
-Or install from source:
-
-```bash
-git clone https://github.com/phonemescape/phonemescape.git
-cd phonemescape
-pip install -e .
+git clone https://github.com/joegr/ipaba.git
+cd ipaba
+pip install -e .            # core
+pip install -e ".[graph]"   # + Neo4j driver for the sample graph
 ```
 
 ## Quick Start
@@ -30,250 +35,245 @@ pip install -e .
 ```python
 import phonemescape as pm
 
-# Initialize the library
 ipa = pm.Phonemescape()
 
-# Plot the vowel chart
-fig = ipa.plot_vowel_chart()
-fig.show()
+ipa.calculate_similarity('p', 'b')      # 0.962 – differ only in [voice]
+ipa.differing_features('i', 'j')        # {'syllabic': ('+', '-'), 'tense': ('+', '0')}
+ipa.find_similar_phonemes('i', top_k=4) # y, ɪ, ɨ, e
 
-# Plot the consonant chart
-fig = ipa.plot_consonant_chart()
-fig.show()
+ipa.get_phoneme_info('tʰ')['description']   # 'Voiceless alveolar plosive, aspirated'
+ipa.natural_class(strident='+')             # ['s', 'z', 'ʃ', 'ʒ', 'ʂ', 'ʐ', 'ɕ', 'ʑ', 'ɧ']
 
-# Calculate similarity between phonemes
-similarity = ipa.calculate_similarity('i', 'e')
-print(f"Similarity between 'i' and 'e': {similarity:.3f}")
-
-# Find similar phonemes
-similar = ipa.find_similar_phonemes('i', top_k=5)
-for phoneme, sim in similar:
-    print(f"{phoneme}: {sim:.3f}")
+fig = ipa.plot_vowel_chart(highlight=['i', 'e', 'ɛ', 'a', 'ɑ', 'ɔ', 'o', 'u'])
 ```
+
+## A note on terminology
+
+IPA symbols denote **phones** (speech sounds). A **phoneme** is a contrastive
+unit of one particular language, written between slashes (/t/), while a phone
+is written in square brackets ([tʰ]). Phonemescape works with the
+language-independent IPA segments. The API keeps the name "phoneme" for
+backwards compatibility.
 
 ## Examples
 
-### Basic Phoneme Information
+### Segment information
 
 ```python
-import phonemescape as pm
-
-ipa = pm.Phonemescape()
-
-# Get information about a phoneme
 info = ipa.get_phoneme_info('i')
-print(info)
-# {'symbol': 'i', 'type': 'vowel', 'coordinates': (1, 5), 
+# {'symbol': 'i', 'type': 'vowel', 'coordinates': (-0.08, 0.0),
 #  'height': 'close', 'backness': 'front', 'roundedness': 'unrounded',
-#  'description': 'Close front unrounded vowel'}
+#  'description': 'Close front unrounded vowel', 'base': 'i',
+#  'modifiers': [], 'tones': [], 'features': {'syllabic': '+', ...}}
 
-# Check if a phoneme is a vowel or consonant
-print(ipa.is_vowel('i'))      # True
-print(ipa.is_consonant('p'))  # True
+ipa.get_phoneme_info('t͡s')['description']   # 'Voiceless alveolar sibilant affricate'
+ipa.get_phoneme_info('ŋ̊')['description']    # 'Voiceless velar nasal'
+ipa.get_phoneme_info('kʼ')['airstream']      # 'glottalic egressive'
+ipa.is_vowel('aː'), ipa.is_consonant('p')    # (True, True)
+```
+
+### Tokenizing and analysing transcriptions
+
+```python
+[t.text for t in ipa.tokenize('/ˈhjuːmən/')]
+# ['ˈ', 'h', 'j', 'uː', 'm', 'ə', 'n']
+
+analysis = ipa.analyze_word('[kʰæt]')
+analysis['phonemes']          # ['kʰ', 'æ', 't']
+analysis['n_vowels'], analysis['n_consonants']    # (1, 2)
+analysis['suprasegmentals']   # stress, tone, breaks found in the input
+analysis['invalid_phonemes']  # characters that are not IPA
+
+ipa.sample_similarity('kæt', 'bæt')   # phonetic alignment similarity, 0..1
 ```
 
 ### Visualization
 
 ```python
-import phonemescape as pm
+ipa.plot_vowel_chart(highlight=['i', 'u'])
+ipa.plot_consonant_chart(highlight=['p', 't', 'k'])
+ipa.plot_combined_chart(highlight_vowels=['i', 'u'], highlight_consonants=['p', 't', 'k'])
 
-ipa = pm.Phonemescape()
-
-# Plot vowel chart with highlighted phonemes
-fig = ipa.plot_vowel_chart(highlight=['i', 'e', 'a'])
-fig.show()
-
-# Plot consonant chart
-fig = ipa.plot_consonant_chart()
-fig.show()
-
-# Combined chart
-fig = ipa.plot_combined_chart(
-    highlight_vowels=['i', 'u'],
-    highlight_consonants=['p', 't', 'k']
-)
-fig.show()
+# Vowels and consonants are drawn on separate planes; cross-plane edges are dashed
+ipa.plot_similarity_network(['i', 'u', 'j', 'w', 'p', 't'], threshold=0.68)
 ```
 
-### Similarity Analysis
+### Feature queries and clustering
 
 ```python
-import phonemescape as pm
-import numpy as np
+ipa.find_phonemes_by_features(backness='front')            # vowels only
+ipa.find_phonemes_by_features(manner='plosive', voicing='voiceless')
+ipa.find_phonemes_by_features(place='velar', nasal='+')    # mix chart attributes and features
+ipa.natural_class(syllabic='-', consonantal='-', sonorant='+')   # glides: ʋ j ɰ w ɥ
 
-ipa = pm.Phonemescape()
+ipa.get_phoneme_clusters(['i', 'e', 'u', 'o', 'p', 't', 'k'], n_clusters=2)
+# {0: ['i', 'e', 'u', 'o'], 1: ['p', 't', 'k']}
 
-# Calculate similarity matrix for a set of phonemes
-phonemes = ['i', 'e', 'a', 'u', 'o']
-similarity_matrix = ipa.get_similarity_matrix(phonemes)
-print(similarity_matrix)
-
-# Find most similar phonemes to a target
-similar = ipa.find_similar_phonemes('i', phoneme_type='vowel', top_k=10)
-print("Phonemes similar to 'i':")
-for phoneme, similarity in similar:
-    print(f"  {phoneme}: {similarity:.3f}")
-
-# Plot similarity network
-fig = ipa.plot_similarity_network(['i', 'e', 'a', 'u', 'o'], threshold=0.3)
-fig.show()
+ipa.export_data(format='csv')   # every symbol with its chart attributes and features
 ```
 
-### Word Analysis
+### Command line
+
+```bash
+phonemescape info tʰ
+phonemescape compare s ʃ
+phonemescape similar ɛ -k 5 -t vowel
+phonemescape analyze "/ˈhjuːmən/"
+phonemescape class sonorant=- continuant=+ voice=+
+```
+
+## Neo4j sample graph (local only)
+
+Every sample you add becomes part of one connected graph:
+
+```
+(:Sample)-[:HAS_SEGMENT {index}]->(:Segment)     ordered realisation
+(:Sample)-[:IN_LANGUAGE]->(:Language)
+(:Sample)-[:SIMILAR_TO {score}]-(:Sample)        phonetic alignment ≥ sample_threshold
+(:Segment)-[:HAS_FEATURE]->(:Feature {id:'+voice'})
+(:Segment)-[:VARIANT_OF]->(:Segment)             tʰ → t, ã → a, t͡ʃ → t, ʃ
+(:Segment)-[:SIMILAR_TO {score}]-(:Segment)      ≥ segment_threshold
+```
+
+The connection is **restricted to loopback hosts** (`localhost`, `127.0.0.1`,
+`::1`). Any other URI is refused before a connection is attempted. The bundled
+`docker-compose.yml` binds Neo4j's ports to `127.0.0.1` only.
+
+```bash
+docker compose up -d              # Neo4j 5 community; browser at http://localhost:7474
+phonemescape graph init           # constraints + all IPA chart segments
+phonemescape graph add "/kæt/" --language en --gloss cat
+phonemescape graph stats
+```
 
 ```python
-import phonemescape as pm
-
 ipa = pm.Phonemescape()
-
-# Analyze a word (using IPA symbols)
-analysis = ipa.analyze_word('kæt')  # "cat" in IPA
-print(f"Word: {analysis['word']}")
-print(f"Phonemes: {analysis['phonemes']}")
-print(f"Vowels: {analysis['n_vowels']}, Consonants: {analysis['n_consonants']}")
-print(f"Average similarity: {analysis['average_similarity']:.3f}")
-
-# Get details for each phoneme
-for detail in analysis['phoneme_details']:
-    print(f"  {detail['symbol']}: {detail['description']}")
+graph = ipa.connect_graph()                    # bolt://localhost:7687
+sid = ipa.add_sample('[kʰæt]', language='en', gloss='cat')
+graph.similar_samples(sid)                     # e.g. /kæt/ 0.989, /bæt/ 0.899
+graph.samples_with_segment('k')                # also finds kʰ via VARIANT_OF
+graph.samples_in_natural_class(nasal='+')
+graph.segment_frequencies(language='en')
 ```
 
-### Advanced Features
+Settings come from `NEO4J_URI` (default `bolt://localhost:7687`), `NEO4J_USER`
+(`neo4j`), `NEO4J_PASSWORD` (`phonemescape-local`, same as the compose file) and
+`NEO4J_DATABASE` (`neo4j`). See `examples/graph_samples.py`.
 
-```python
-import phonemescape as pm
+## Phonological model
 
-ipa = pm.Phonemescape()
+### Chart geometry
 
-# Find phonemes by features
-front_vowels = ipa.find_phonemes_by_features(backness='front')
-print("Front vowels:", front_vowels)
+Vowels and consonants live on **separate planes**, both drawn in the chart's
+orientation (close vowels and plosives at the top).
 
-bilabial_consonants = ipa.find_phonemes_by_features(place='bilabial')
-print("Bilabial consonants:", bilabial_consonants)
+- **Vowel trapezoid**: y = height (0 close … 3 open, seven equidistant rows);
+  the back edge is vertical at x = 2; the front edge slopes from x = 0 (close)
+  to x = 1 (open), so the open row is half as wide as the close row, as on the
+  official chart. Central, near-front and near-back positions are interpolated
+  proportionally at each height, so the central line slopes too. In each
+  rounding pair the unrounded vowel sits left of the dot and the rounded one
+  right.
+- **Consonant grid**: x = place (bilabial 0 … glottal 10), y = manner (plosive 0
+  … lateral approximant 7); voiceless symbols sit left in a cell, voiced right.
+  Other symbols and non-pulmonic consonants get positions between or below the
+  pulmonic cells.
 
-# Cluster phonemes
-phonemes = ['i', 'e', 'a', 'u', 'o', 'p', 't', 'k']
-clusters = ipa.get_phoneme_clusters(phonemes, n_clusters=3)
-for cluster_id, cluster_phonemes in clusters.items():
-    print(f"Cluster {cluster_id}: {cluster_phonemes}")
+### Distinctive features
 
-# Export data
-json_data = ipa.export_data(format='json')
-print(json_data[:100] + "...")  # First 100 characters
+`syllabic consonantal sonorant continuant delayed_release approximant tap
+trill nasal lateral strident voice spread_glottis constricted_glottis labial
+round labiodental coronal anterior distributed dorsal high low front back
+tense long velaric`, each valued `+`, `-` or `0` (unspecified).
+
+Features are derived **by rule** from height/backness/rounding and
+manner/place/voicing, with articulator-based feature geometry: dependents of an
+absent articulator are 0. Palatals are dorsal [+high, +front]. Laryngeals
+(h ɦ ʔ) are [-consonantal]. Glides are [-consonantal] and liquids
+[+consonantal]. Diacritics modify the bundle: `̥` [-voice], `ʰ` [+spread
+glottis], `ʼ` [+constricted glottis], `̃` [+nasal], `̩` [+syllabic], `ʷ`
+[+labial, +round], `ʲ` [+high, +front], `ˠ` velarized, `ˤ` pharyngealized, `˞`
+rhotacized, `ː` [+long], raised approximants become fricatives, lowered
+fricatives become approximants, and so on. Tie bars build affricates (stop +
+fricative → [-continuant, +delayed release]), double articulations (`k͡p`:
+articulators merged) and diphthongs.
+
+Because vowels and consonants share one feature space, natural classes cross
+the vowel/consonant divide: `i`~`j`, `u`~`w`, `y`~`ɥ` and `ɯ`~`ɰ` differ only
+in [syllabic]. The binary system cannot separate pharyngeals from epiglottals
+(`ħ`/`ʜ`, `ʕ`/`ʢ`), so only their chart positions tell them apart.
+
+### Similarity
+
 ```
+feature_sim = 1 − Σ wᵢ·|aᵢ − bᵢ|/2  /  Σ wᵢ      (over features specified in a or b)
+chart_sim   = 1 − distance / plane diameter       (0 between a vowel and a consonant)
+similarity  = 0.75 · feature_sim + 0.25 · chart_sim
+```
+
+A +/− mismatch costs 1 and a specified/unspecified mismatch costs 0.5.
+Per-feature weights and the 0.75 mix are configurable on
+`MouthShapeSimilarity`. Sample similarity is a weighted edit distance:
+substituting a for b costs 1 − similarity(a, b), and an insertion or deletion
+costs 1, normalised by the length of the longer sample.
 
 ## API Reference
 
-### Core Classes
-
 #### `Phonemescape`
-Main interface for the library.
-
-**Methods:**
-- `get_all_phonemes()`: List all available phonemes
-- `get_phoneme_info(phoneme)`: Get detailed phoneme information
-- `calculate_similarity(phoneme1, phoneme2)`: Calculate similarity between phonemes
-- `find_similar_phonemes(target, top_k=10)`: Find most similar phonemes
-- `plot_vowel_chart(highlight=None)`: Create vowel chart visualization
-- `plot_consonant_chart(highlight=None)`: Create consonant chart visualization
-- `plot_combined_chart(...)`: Create combined chart
-- `plot_similarity_network(phonemes, threshold=0.5)`: Plot similarity network
-- `analyze_word(word)`: Analyze phonemes in a word
-- `find_phonemes_by_features(**features)`: Find phonemes by articulatory features
+- `get_all_phonemes()`, `get_vowels()`, `get_consonants()`, `is_vowel(p)`, `is_consonant(p)`
+- `get_phoneme_info(p)`, `get_distinctive_features(p)`, `differing_features(a, b)`
+- `calculate_similarity(a, b)`, `get_similarity_matrix(ps)`, `find_similar_phonemes(p, phoneme_type, top_k)`
+- `tokenize(text)`, `analyze_word(text)`, `sample_similarity(t1, t2)`
+- `find_phonemes_by_features(**criteria)`, `natural_class(**features)`, `get_phoneme_clusters(ps, n)`
+- `plot_vowel_chart`, `plot_consonant_chart`, `plot_combined_chart`, `plot_similarity_network`
+- `export_data(format='dict'|'json'|'csv')`
+- `connect_graph(**kwargs)`, `add_sample(transcription, **kwargs)`
 
 #### `MouthShapeSimilarity`
-Calculate mouth shape similarities.
-
-**Methods:**
-- `phoneme_similarity(phoneme1, phoneme2)`: Calculate similarity
-- `similarity_matrix(phonemes)`: Calculate similarity matrix
-- `most_similar_phonemes(target, top_k=5)`: Find most similar phonemes
-- `mouth_shape_distance(phoneme1, phoneme2)`: Distance based on chart coordinates
-- `articulatory_feature_distance(phoneme1, phoneme2)`: Distance based on features
+- `phoneme_similarity`, `feature_similarity`, `chart_similarity`, `similarity_matrix`
+- `most_similar_phonemes`, `mouth_shape_distance` (chart; ∞ across planes),
+  `articulatory_feature_distance` (features; defined for every pair)
+- `sequence_distance`, `sequence_similarity`, `cluster_phonemes`
 
 #### `IPAPlotter`
-Create visualizations of IPA charts.
+- `plot_vowel_chart`, `plot_consonant_chart`, `plot_combined_chart`, `plot_similarity_network`
+- `setup_vowel_axes(ax)`, `setup_consonant_axes(ax)`, `draw_network(ax, ...)` for custom figures
 
-**Methods:**
-- `plot_vowel_chart(highlight_phonemes=None)`: Plot vowel chart
-- `plot_consonant_chart(highlight_phonemes=None)`: Plot consonant chart
-- `plot_combined_chart(...)`: Plot combined chart
-- `plot_similarity_network(phonemes, similarity_matrix, threshold=0.5)`: Plot network
+#### `PhonemeGraph` (`phonemescape.graph`)
+- `setup_schema`, `load_inventory`, `add_sample`, `add_samples`, `relink_samples`
+- `get_sample`, `similar_samples`, `samples_with_segment`, `samples_in_natural_class`
+- `segment_frequencies`, `stats`, `delete_sample`, `delete_all`
 
-## Data Structure
+#### Module functions
+- `pm.tokenize(text)`, `pm.segments(text)`, `pm.get_segment(symbol)` → `Segment`
+  (symbol, kind, base, parts, modifiers, tones, features, position, coordinates, description)
 
-### Vowels
-Each vowel is stored with:
-- Symbol (IPA character)
-- X, Y coordinates (for 2D plotting)
-- Height (close, near-close, close-mid, mid, open-mid, near-open, open)
-- Backness (front, near-front, central, near-back, back)
-- Roundedness (rounded, unrounded)
-- Description
-
-### Consonants
-Each consonant is stored with:
-- Symbol (IPA character)
-- X, Y coordinates (for 2D plotting)
-- Manner (nasal, plosive, fricative, affricate, approximant, trill)
-- Place (bilabial, labiodental, dental, alveolar, postalveolar, retroflex, palatal, velar, uvular, glottal)
-- Voicing (voiced, voiceless)
-- Description
-
-## Similarity Calculation
-
-The similarity between phonemes is calculated using a combination of:
-
-1. **Articulatory Feature Similarity**: Based on phonetic features (height, backness, place, manner, etc.)
-2. **Chart Proximity**: Euclidean distance on the IPA chart
-3. **Cosine Similarity**: Between feature vectors
-
-The final similarity score is a weighted average that ranges from 0 (completely different) to 1 (identical).
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
-
-### Development Setup
+## Development
 
 ```bash
-git clone https://github.com/phonemescape/phonemescape.git
-cd phonemescape
-pip install -e ".[dev]"
-```
-
-### Running Tests
-
-```bash
-pytest
-```
-
-### Code Formatting
-
-```bash
+pip install -e ".[dev,graph]"
+pytest                    # graph tests run when a local Neo4j is up, else skip
 black phonemescape/
 ```
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License.
 
 ## Acknowledgments
 
-- International Phonetic Association for the IPA chart standards
-- The linguistic community for phonetic research and documentation
-- Contributors who help improve this library
+- International Phonetic Association: *The International Phonetic Alphabet* (revised to 2020)
+- Hayes, B. (2009). *Introductory Phonology*. Wiley-Blackwell (feature system)
+- Mortensen, D. et al. (2016). PanPhon: a resource for mapping IPA segments to articulatory feature vectors. *COLING*
+- Chomsky, N. & Halle, M. (1968). *The Sound Pattern of English*
 
 ## Citation
-
-If you use this library in your research, please cite:
 
 ```bibtex
 @software{phonemescape,
   title={Phonemescape: International Phonetic Alphabet Library},
   author={Phonemescape Team},
-  year={2024},
+  year={2026},
   url={https://github.com/joegr/ipaba}
 }
 ```

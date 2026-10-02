@@ -1,288 +1,587 @@
 """
-IPA phoneme data with coordinates for visualization and similarity analysis.
-Coordinates are based on official IPA chart (2020 revision).
+IPA segment inventory, chart geometry and symbol tables.
 
-VOWEL COORDINATE SYSTEM (Trapezoid):
-- X-axis: Backness (0=Front, 1=Central, 2=Back) - note trapezoid shape
-- Y-axis: Height (0=Close, 1=Close-mid, 2=Open-mid, 3=Open)
-- The trapezoid narrows toward the top (close vowels)
+Source of truth: the International Phonetic Alphabet chart (IPA, 2020
+revision): pulmonic consonants, non-pulmonic consonants, other symbols,
+vowels, diacritics, suprasegmentals and tones & word accents.
 
-CONSONANT COORDINATE SYSTEM (Grid):
-- X-axis: Place of articulation (0-10)
-- Y-axis: Manner of articulation (0-7)
+A note on terminology
+---------------------
+IPA symbols denote *phones* (speech sounds); a *phoneme* is a contrastive
+unit of one particular language, written between slashes (/t/), while a
+phone is written in square brackets ([tʰ]).  This library works with the
+language-independent IPA segments; the public API keeps the historical name
+"phoneme" for backwards compatibility.
 
-These are SEPARATE coordinate planes - vowels and consonants should
-NEVER be compared directly on the same plane.
+Chart geometry
+--------------
+Vowels and consonants live on SEPARATE display planes.
+
+VOWEL PLANE (the IPA trapezoid)
+    y: height, 0 = close (top) ... 3 = open (bottom)
+    x: backness.  The back edge is vertical at x = 2; the front edge slopes
+       from x = 0 at close to x = 1 at open, so the open row is half the
+       width of the close row, exactly as on the official chart.  Central
+       and near-front/near-back positions are interpolated proportionally
+       between the two edges *at each height*, so the central line slopes
+       too.  Where the chart prints a pair of symbols beside a dot, the
+       unrounded member sits left of the dot and the rounded one right.
+
+CONSONANT PLANE (the pulmonic grid)
+    x: place of articulation, 0 = bilabial ... 10 = glottal
+    y: manner of articulation, 0 = plosive (top row) ... 7 = lateral
+       approximant (bottom row)
+    In each cell the voiceless member sits left and the voiced member
+    right.  Voiced-only sonorants therefore sit on the right half, as on
+    the chart.  Non-pulmonic consonants and the "other symbols" are given
+    display positions outside / between the pulmonic cells; they are not
+    part of the pulmonic chart.
+
+The legacy dictionaries ``IPA_VOWELS`` and ``IPA_CONSONANTS`` keep their
+original 6-tuple format ``(x, y, feature1, feature2, feature3, description)``.
 """
 
-# =============================================================================
-# VOWEL DATA - Based on official IPA vowel trapezoid (2020)
-# =============================================================================
-# Format: symbol -> (x, y, height, backness, roundedness, description)
-# 
-# Trapezoid coordinates (matching the visual chart):
-#   - X: 0.0 = Front, 1.0 = Central, 2.0 = Back
-#   - Y: 0.0 = Close (top), 1.0 = Close-mid, 2.0 = Open-mid, 3.0 = Open (bottom)
-#   - Trapezoid effect: Front vowels shift right as height decreases
-#
-# Pairs: unrounded • rounded (left • right in each position)
+from typing import Dict, List, Optional, Tuple
 
-IPA_VOWELS = {
-    # Close (Y=0) - Top row of trapezoid
-    'i': (0.0, 0.0, 'close', 'front', 'unrounded', 'Close front unrounded vowel'),
-    'y': (0.1, 0.0, 'close', 'front', 'rounded', 'Close front rounded vowel'),
-    'ɨ': (1.0, 0.0, 'close', 'central', 'unrounded', 'Close central unrounded vowel'),
-    'ʉ': (1.1, 0.0, 'close', 'central', 'rounded', 'Close central rounded vowel'),
-    'ɯ': (2.0, 0.0, 'close', 'back', 'unrounded', 'Close back unrounded vowel'),
-    'u': (2.1, 0.0, 'close', 'back', 'rounded', 'Close back rounded vowel'),
-    
-    # Near-close (Y=0.5) - Between Close and Close-mid
-    'ɪ': (0.3, 0.5, 'near-close', 'near-front', 'unrounded', 'Near-close near-front unrounded vowel'),
-    'ʏ': (0.4, 0.5, 'near-close', 'near-front', 'rounded', 'Near-close near-front rounded vowel'),
-    'ʊ': (1.8, 0.5, 'near-close', 'near-back', 'rounded', 'Near-close near-back rounded vowel'),
-    
-    # Close-mid (Y=1)
-    'e': (0.2, 1.0, 'close-mid', 'front', 'unrounded', 'Close-mid front unrounded vowel'),
-    'ø': (0.3, 1.0, 'close-mid', 'front', 'rounded', 'Close-mid front rounded vowel'),
-    'ɘ': (1.0, 1.0, 'close-mid', 'central', 'unrounded', 'Close-mid central unrounded vowel'),
-    'ɵ': (1.1, 1.0, 'close-mid', 'central', 'rounded', 'Close-mid central rounded vowel'),
-    'ɤ': (2.0, 1.0, 'close-mid', 'back', 'unrounded', 'Close-mid back unrounded vowel'),
-    'o': (2.1, 1.0, 'close-mid', 'back', 'rounded', 'Close-mid back rounded vowel'),
-    
-    # Mid (Y=1.5) - Schwa position
-    'ə': (1.0, 1.5, 'mid', 'central', 'unrounded', 'Mid central vowel (schwa)'),
-    
-    # Open-mid (Y=2)
-    'ɛ': (0.4, 2.0, 'open-mid', 'front', 'unrounded', 'Open-mid front unrounded vowel'),
-    'œ': (0.5, 2.0, 'open-mid', 'front', 'rounded', 'Open-mid front rounded vowel'),
-    'ɜ': (1.0, 2.0, 'open-mid', 'central', 'unrounded', 'Open-mid central unrounded vowel'),
-    'ɞ': (1.1, 2.0, 'open-mid', 'central', 'rounded', 'Open-mid central rounded vowel'),
-    'ʌ': (1.8, 2.0, 'open-mid', 'back', 'unrounded', 'Open-mid back unrounded vowel'),
-    'ɔ': (2.1, 2.0, 'open-mid', 'back', 'rounded', 'Open-mid back rounded vowel'),
-    
-    # Near-open (Y=2.5)
-    'æ': (0.5, 2.5, 'near-open', 'front', 'unrounded', 'Near-open front unrounded vowel'),
-    'ɐ': (1.2, 2.5, 'near-open', 'central', 'unrounded', 'Near-open central vowel'),
-    
-    # Open (Y=3) - Bottom row of trapezoid
-    'a': (0.6, 3.0, 'open', 'front', 'unrounded', 'Open front unrounded vowel'),
-    'ɶ': (0.7, 3.0, 'open', 'front', 'rounded', 'Open front rounded vowel'),
-    'ɑ': (2.0, 3.0, 'open', 'back', 'unrounded', 'Open back unrounded vowel'),
-    'ɒ': (2.1, 3.0, 'open', 'back', 'rounded', 'Open back rounded vowel'),
+# =============================================================================
+# VOWEL GEOMETRY
+# =============================================================================
+
+VOWEL_HEIGHTS: List[str] = [
+    'close', 'near-close', 'close-mid', 'mid', 'open-mid', 'near-open', 'open'
+]
+VOWEL_BACKNESSES: List[str] = ['front', 'near-front', 'central', 'near-back', 'back']
+
+#: y coordinate of each height (rows are equidistant, as on the chart).
+HEIGHT_Y: Dict[str, float] = {
+    'close': 0.0, 'near-close': 0.5, 'close-mid': 1.0, 'mid': 1.5,
+    'open-mid': 2.0, 'near-open': 2.5, 'open': 3.0,
+}
+
+#: Proportional position between the front edge (0) and the back edge (1).
+BACKNESS_FRACTION: Dict[str, float] = {
+    'front': 0.0, 'near-front': 0.25, 'central': 0.5, 'near-back': 0.75, 'back': 1.0,
+}
+
+VOWEL_MAX_Y = 3.0
+VOWEL_BACK_X = 2.0
+VOWEL_FRONT_OPEN_X = 1.0
+#: Horizontal offset of the symbols of a rounding pair from their shared dot.
+ROUNDING_OFFSET = 0.08
+
+
+def vowel_front_edge(y: float) -> float:
+    """x coordinate of the trapezoid's (sloping) front edge at height y."""
+    return VOWEL_FRONT_OPEN_X * (y / VOWEL_MAX_Y)
+
+
+def vowel_back_edge(y: float) -> float:
+    """x coordinate of the trapezoid's (vertical) back edge at height y."""
+    return VOWEL_BACK_X
+
+
+def vowel_point(height: str, backness: str) -> Tuple[float, float]:
+    """Articulatory point (the chart's 'dot') for a height/backness pair."""
+    y = HEIGHT_Y[height]
+    left, right = vowel_front_edge(y), vowel_back_edge(y)
+    return (round(left + BACKNESS_FRACTION[backness] * (right - left), 4), y)
+
+
+def vowel_central_x(y: float) -> float:
+    """x coordinate of the central line at height y."""
+    return (vowel_front_edge(y) + vowel_back_edge(y)) / 2
+
+
+#: Corner points of the trapezoid outline (close-front, close-back,
+#: open-back, open-front).
+VOWEL_TRAPEZOID: List[Tuple[float, float]] = [
+    (vowel_front_edge(0.0), 0.0), (vowel_back_edge(0.0), 0.0),
+    (vowel_back_edge(VOWEL_MAX_Y), VOWEL_MAX_Y), (vowel_front_edge(VOWEL_MAX_Y), VOWEL_MAX_Y),
+]
+
+# =============================================================================
+# VOWELS - official IPA chart (2020), all 28 symbols
+# =============================================================================
+# symbol: (height, backness, roundedness)
+# 'unspecified' roundedness: the chart prints ə and ɐ alone, without a
+# rounding value (their official names carry none).
+
+VOWEL_SPECS: Dict[str, Tuple[str, str, str]] = {
+    # Close
+    'i': ('close', 'front', 'unrounded'),
+    'y': ('close', 'front', 'rounded'),
+    'ɨ': ('close', 'central', 'unrounded'),
+    'ʉ': ('close', 'central', 'rounded'),
+    'ɯ': ('close', 'back', 'unrounded'),
+    'u': ('close', 'back', 'rounded'),
+    # Near-close
+    'ɪ': ('near-close', 'near-front', 'unrounded'),
+    'ʏ': ('near-close', 'near-front', 'rounded'),
+    'ʊ': ('near-close', 'near-back', 'rounded'),
+    # Close-mid
+    'e': ('close-mid', 'front', 'unrounded'),
+    'ø': ('close-mid', 'front', 'rounded'),
+    'ɘ': ('close-mid', 'central', 'unrounded'),
+    'ɵ': ('close-mid', 'central', 'rounded'),
+    'ɤ': ('close-mid', 'back', 'unrounded'),
+    'o': ('close-mid', 'back', 'rounded'),
+    # Mid
+    'ə': ('mid', 'central', 'unspecified'),
+    # Open-mid
+    'ɛ': ('open-mid', 'front', 'unrounded'),
+    'œ': ('open-mid', 'front', 'rounded'),
+    'ɜ': ('open-mid', 'central', 'unrounded'),
+    'ɞ': ('open-mid', 'central', 'rounded'),
+    'ʌ': ('open-mid', 'back', 'unrounded'),
+    'ɔ': ('open-mid', 'back', 'rounded'),
+    # Near-open
+    'æ': ('near-open', 'front', 'unrounded'),
+    'ɐ': ('near-open', 'central', 'unspecified'),
+    # Open
+    'a': ('open', 'front', 'unrounded'),
+    'ɶ': ('open', 'front', 'rounded'),
+    'ɑ': ('open', 'back', 'unrounded'),
+    'ɒ': ('open', 'back', 'rounded'),
 }
 
 # =============================================================================
-# CONSONANT DATA - Based on official IPA pulmonic consonant chart (2020)
+# CONSONANT GEOMETRY
 # =============================================================================
-# Format: symbol -> (x, y, manner, place, voicing, description)
-#
-# Grid coordinates (matching the visual chart):
-#   X-axis (Place of articulation):
-#     0 = Bilabial
-#     1 = Labiodental  
-#     2 = Dental
-#     3 = Alveolar
-#     4 = Postalveolar
-#     5 = Retroflex
-#     6 = Palatal
-#     7 = Velar
-#     8 = Uvular
-#     9 = Pharyngeal
-#     10 = Glottal
-#
-#   Y-axis (Manner of articulation):
-#     0 = Plosive
-#     1 = Nasal
-#     2 = Trill
-#     3 = Tap or Flap
-#     4 = Fricative
-#     5 = Lateral fricative
-#     6 = Approximant
-#     7 = Lateral approximant
-#
-# Voicing: In each cell, voiceless is left, voiced is right
-# Shaded cells = articulation judged impossible
 
-IPA_CONSONANTS = {
-    # ===================
-    # PLOSIVES (Y=0)
-    # ===================
-    'p': (0, 0, 'plosive', 'bilabial', 'voiceless', 'Voiceless bilabial plosive'),
-    'b': (0.1, 0, 'plosive', 'bilabial', 'voiced', 'Voiced bilabial plosive'),
-    't': (3, 0, 'plosive', 'alveolar', 'voiceless', 'Voiceless alveolar plosive'),
-    'd': (3.1, 0, 'plosive', 'alveolar', 'voiced', 'Voiced alveolar plosive'),
-    'ʈ': (5, 0, 'plosive', 'retroflex', 'voiceless', 'Voiceless retroflex plosive'),
-    'ɖ': (5.1, 0, 'plosive', 'retroflex', 'voiced', 'Voiced retroflex plosive'),
-    'c': (6, 0, 'plosive', 'palatal', 'voiceless', 'Voiceless palatal plosive'),
-    'ɟ': (6.1, 0, 'plosive', 'palatal', 'voiced', 'Voiced palatal plosive'),
-    'k': (7, 0, 'plosive', 'velar', 'voiceless', 'Voiceless velar plosive'),
-    'g': (7.1, 0, 'plosive', 'velar', 'voiced', 'Voiced velar plosive'),
-    'q': (8, 0, 'plosive', 'uvular', 'voiceless', 'Voiceless uvular plosive'),
-    'ɢ': (8.1, 0, 'plosive', 'uvular', 'voiced', 'Voiced uvular plosive'),
-    'ʔ': (10, 0, 'plosive', 'glottal', 'voiceless', 'Glottal stop'),
-    
-    # ===================
-    # NASALS (Y=1)
-    # ===================
-    'm': (0, 1, 'nasal', 'bilabial', 'voiced', 'Voiced bilabial nasal'),
-    'ɱ': (1, 1, 'nasal', 'labiodental', 'voiced', 'Voiced labiodental nasal'),
-    'n': (3, 1, 'nasal', 'alveolar', 'voiced', 'Voiced alveolar nasal'),
-    'ɳ': (5, 1, 'nasal', 'retroflex', 'voiced', 'Voiced retroflex nasal'),
-    'ɲ': (6, 1, 'nasal', 'palatal', 'voiced', 'Voiced palatal nasal'),
-    'ŋ': (7, 1, 'nasal', 'velar', 'voiced', 'Voiced velar nasal'),
-    'ɴ': (8, 1, 'nasal', 'uvular', 'voiced', 'Voiced uvular nasal'),
-    
-    # ===================
-    # TRILLS (Y=2)
-    # ===================
-    'ʙ': (0, 2, 'trill', 'bilabial', 'voiced', 'Voiced bilabial trill'),
-    'r': (3, 2, 'trill', 'alveolar', 'voiced', 'Voiced alveolar trill'),
-    'ʀ': (8, 2, 'trill', 'uvular', 'voiced', 'Voiced uvular trill'),
-    
-    # ===================
-    # TAPS/FLAPS (Y=3)
-    # ===================
-    'ⱱ': (1, 3, 'tap', 'labiodental', 'voiced', 'Voiced labiodental flap'),
-    'ɾ': (3, 3, 'tap', 'alveolar', 'voiced', 'Voiced alveolar tap'),
-    'ɽ': (5, 3, 'tap', 'retroflex', 'voiced', 'Voiced retroflex flap'),
-    
-    # ===================
-    # FRICATIVES (Y=4)
-    # ===================
-    'ɸ': (0, 4, 'fricative', 'bilabial', 'voiceless', 'Voiceless bilabial fricative'),
-    'β': (0.1, 4, 'fricative', 'bilabial', 'voiced', 'Voiced bilabial fricative'),
-    'f': (1, 4, 'fricative', 'labiodental', 'voiceless', 'Voiceless labiodental fricative'),
-    'v': (1.1, 4, 'fricative', 'labiodental', 'voiced', 'Voiced labiodental fricative'),
-    'θ': (2, 4, 'fricative', 'dental', 'voiceless', 'Voiceless dental fricative'),
-    'ð': (2.1, 4, 'fricative', 'dental', 'voiced', 'Voiced dental fricative'),
-    's': (3, 4, 'fricative', 'alveolar', 'voiceless', 'Voiceless alveolar fricative'),
-    'z': (3.1, 4, 'fricative', 'alveolar', 'voiced', 'Voiced alveolar fricative'),
-    'ʃ': (4, 4, 'fricative', 'postalveolar', 'voiceless', 'Voiceless postalveolar fricative'),
-    'ʒ': (4.1, 4, 'fricative', 'postalveolar', 'voiced', 'Voiced postalveolar fricative'),
-    'ʂ': (5, 4, 'fricative', 'retroflex', 'voiceless', 'Voiceless retroflex fricative'),
-    'ʐ': (5.1, 4, 'fricative', 'retroflex', 'voiced', 'Voiced retroflex fricative'),
-    'ç': (6, 4, 'fricative', 'palatal', 'voiceless', 'Voiceless palatal fricative'),
-    'ʝ': (6.1, 4, 'fricative', 'palatal', 'voiced', 'Voiced palatal fricative'),
-    'x': (7, 4, 'fricative', 'velar', 'voiceless', 'Voiceless velar fricative'),
-    'ɣ': (7.1, 4, 'fricative', 'velar', 'voiced', 'Voiced velar fricative'),
-    'χ': (8, 4, 'fricative', 'uvular', 'voiceless', 'Voiceless uvular fricative'),
-    'ʁ': (8.1, 4, 'fricative', 'uvular', 'voiced', 'Voiced uvular fricative'),
-    'ħ': (9, 4, 'fricative', 'pharyngeal', 'voiceless', 'Voiceless pharyngeal fricative'),
-    'ʕ': (9.1, 4, 'fricative', 'pharyngeal', 'voiced', 'Voiced pharyngeal fricative'),
-    'h': (10, 4, 'fricative', 'glottal', 'voiceless', 'Voiceless glottal fricative'),
-    'ɦ': (10.1, 4, 'fricative', 'glottal', 'voiced', 'Voiced glottal fricative'),
-    
-    # ===================
-    # LATERAL FRICATIVES (Y=5)
-    # ===================
-    'ɬ': (3, 5, 'lateral-fricative', 'alveolar', 'voiceless', 'Voiceless alveolar lateral fricative'),
-    'ɮ': (3.1, 5, 'lateral-fricative', 'alveolar', 'voiced', 'Voiced alveolar lateral fricative'),
-    
-    # ===================
-    # APPROXIMANTS (Y=6)
-    # ===================
-    'ʋ': (1, 6, 'approximant', 'labiodental', 'voiced', 'Voiced labiodental approximant'),
-    'ɹ': (3, 6, 'approximant', 'alveolar', 'voiced', 'Voiced alveolar approximant'),
-    'ɻ': (5, 6, 'approximant', 'retroflex', 'voiced', 'Voiced retroflex approximant'),
-    'j': (6, 6, 'approximant', 'palatal', 'voiced', 'Voiced palatal approximant'),
-    'ɰ': (7, 6, 'approximant', 'velar', 'voiced', 'Voiced velar approximant'),
-    
-    # ===================
-    # LATERAL APPROXIMANTS (Y=7)
-    # ===================
-    'l': (3, 7, 'lateral-approximant', 'alveolar', 'voiced', 'Voiced alveolar lateral approximant'),
-    'ɭ': (5, 7, 'lateral-approximant', 'retroflex', 'voiced', 'Voiced retroflex lateral approximant'),
-    'ʎ': (6, 7, 'lateral-approximant', 'palatal', 'voiced', 'Voiced palatal lateral approximant'),
-    'ʟ': (7, 7, 'lateral-approximant', 'velar', 'voiced', 'Voiced velar lateral approximant'),
+#: Columns of the pulmonic chart (x coordinate = index).
+CONSONANT_PLACES: List[str] = [
+    'bilabial', 'labiodental', 'dental', 'alveolar', 'postalveolar',
+    'retroflex', 'palatal', 'velar', 'uvular', 'pharyngeal', 'glottal',
+]
+#: Rows of the pulmonic chart (y coordinate = index).
+CONSONANT_MANNERS: List[str] = [
+    'plosive', 'nasal', 'trill', 'tap', 'fricative', 'lateral-fricative',
+    'approximant', 'lateral-approximant',
+]
+
+#: x coordinate of every place used anywhere in the inventory.  Places that
+#: are not pulmonic-chart columns are interpolated between their neighbours.
+PLACE_X: Dict[str, float] = {p: float(i) for i, p in enumerate(CONSONANT_PLACES)}
+PLACE_X.update({
+    'linguolabial': 1.5,
+    'palatoalveolar': 4.0,      # click ǂ (IPA: "palatoalveolar")
+    'alveolo-palatal': 5.5,     # ɕ ʑ: laminal post-alveolar with palatal raising
+    'epiglottal': 9.5,          # ʜ ʢ ʡ: between pharyngeal and glottal
+    'labial-velar': 7.0,        # doubly articulated; plotted at the dorsal column
+    'labial-palatal': 6.0,
+    'postalveolar-velar': 5.5,  # ɧ
+})
+
+#: y coordinate of every manner.  Non-pulmonic manners get rows of their own
+#: below the pulmonic grid; ``lateral-tap`` shares the tap row.
+MANNER_Y: Dict[str, float] = {m: float(i) for i, m in enumerate(CONSONANT_MANNERS)}
+MANNER_Y.update({
+    'lateral-tap': 3.0,
+    'affricate': 0.5,           # between the plosive and nasal rows
+    'implosive': 8.0,
+    'click': 9.0,
+    'lateral-click': 9.0,
+})
+
+#: Horizontal offset of the voiceless (-) / voiced (+) member within a cell.
+VOICING_OFFSET = 0.2
+
+#: Vertical offset that separates an "other symbol" from a pulmonic symbol
+#: sharing its place and manner (w vs ɰ, ɥ vs j, ...).
+OTHER_SYMBOL_OFFSET = 0.35
+
+
+def consonant_point(manner: str, place: str) -> Tuple[float, float]:
+    """Articulatory point of a consonant (cell centre, no voicing offset)."""
+    return (PLACE_X[place], MANNER_Y[manner])
+
+
+# =============================================================================
+# CONSONANTS
+# =============================================================================
+# symbol: (manner, place, voicing)
+
+#: Pulmonic consonants - the full 2020 chart (59 symbols).  The chart prints
+#: t d n r ɾ ɬ ɮ ɹ l in a cell spanning dental/alveolar/postalveolar; they are
+#: placed in the alveolar column.
+PULMONIC_SPECS: Dict[str, Tuple[str, str, str]] = {
+    # Plosive
+    'p': ('plosive', 'bilabial', 'voiceless'),
+    'b': ('plosive', 'bilabial', 'voiced'),
+    't': ('plosive', 'alveolar', 'voiceless'),
+    'd': ('plosive', 'alveolar', 'voiced'),
+    'ʈ': ('plosive', 'retroflex', 'voiceless'),
+    'ɖ': ('plosive', 'retroflex', 'voiced'),
+    'c': ('plosive', 'palatal', 'voiceless'),
+    'ɟ': ('plosive', 'palatal', 'voiced'),
+    'k': ('plosive', 'velar', 'voiceless'),
+    'ɡ': ('plosive', 'velar', 'voiced'),     # U+0261 LATIN SMALL LETTER SCRIPT G
+    'q': ('plosive', 'uvular', 'voiceless'),
+    'ɢ': ('plosive', 'uvular', 'voiced'),
+    'ʔ': ('plosive', 'glottal', 'voiceless'),
+    # Nasal
+    'm': ('nasal', 'bilabial', 'voiced'),
+    'ɱ': ('nasal', 'labiodental', 'voiced'),
+    'n': ('nasal', 'alveolar', 'voiced'),
+    'ɳ': ('nasal', 'retroflex', 'voiced'),
+    'ɲ': ('nasal', 'palatal', 'voiced'),
+    'ŋ': ('nasal', 'velar', 'voiced'),
+    'ɴ': ('nasal', 'uvular', 'voiced'),
+    # Trill
+    'ʙ': ('trill', 'bilabial', 'voiced'),
+    'r': ('trill', 'alveolar', 'voiced'),
+    'ʀ': ('trill', 'uvular', 'voiced'),
+    # Tap or flap
+    'ⱱ': ('tap', 'labiodental', 'voiced'),
+    'ɾ': ('tap', 'alveolar', 'voiced'),
+    'ɽ': ('tap', 'retroflex', 'voiced'),
+    # Fricative
+    'ɸ': ('fricative', 'bilabial', 'voiceless'),
+    'β': ('fricative', 'bilabial', 'voiced'),
+    'f': ('fricative', 'labiodental', 'voiceless'),
+    'v': ('fricative', 'labiodental', 'voiced'),
+    'θ': ('fricative', 'dental', 'voiceless'),
+    'ð': ('fricative', 'dental', 'voiced'),
+    's': ('fricative', 'alveolar', 'voiceless'),
+    'z': ('fricative', 'alveolar', 'voiced'),
+    'ʃ': ('fricative', 'postalveolar', 'voiceless'),
+    'ʒ': ('fricative', 'postalveolar', 'voiced'),
+    'ʂ': ('fricative', 'retroflex', 'voiceless'),
+    'ʐ': ('fricative', 'retroflex', 'voiced'),
+    'ç': ('fricative', 'palatal', 'voiceless'),
+    'ʝ': ('fricative', 'palatal', 'voiced'),
+    'x': ('fricative', 'velar', 'voiceless'),
+    'ɣ': ('fricative', 'velar', 'voiced'),
+    'χ': ('fricative', 'uvular', 'voiceless'),
+    'ʁ': ('fricative', 'uvular', 'voiced'),
+    'ħ': ('fricative', 'pharyngeal', 'voiceless'),
+    'ʕ': ('fricative', 'pharyngeal', 'voiced'),
+    'h': ('fricative', 'glottal', 'voiceless'),
+    'ɦ': ('fricative', 'glottal', 'voiced'),
+    # Lateral fricative
+    'ɬ': ('lateral-fricative', 'alveolar', 'voiceless'),
+    'ɮ': ('lateral-fricative', 'alveolar', 'voiced'),
+    # Approximant
+    'ʋ': ('approximant', 'labiodental', 'voiced'),
+    'ɹ': ('approximant', 'alveolar', 'voiced'),
+    'ɻ': ('approximant', 'retroflex', 'voiced'),
+    'j': ('approximant', 'palatal', 'voiced'),
+    'ɰ': ('approximant', 'velar', 'voiced'),
+    # Lateral approximant
+    'l': ('lateral-approximant', 'alveolar', 'voiced'),
+    'ɭ': ('lateral-approximant', 'retroflex', 'voiced'),
+    'ʎ': ('lateral-approximant', 'palatal', 'voiced'),
+    'ʟ': ('lateral-approximant', 'velar', 'voiced'),
+}
+
+#: "Other symbols" box of the 2020 chart.
+OTHER_SPECS: Dict[str, Tuple[str, str, str]] = {
+    'ʍ': ('fricative', 'labial-velar', 'voiceless'),
+    'w': ('approximant', 'labial-velar', 'voiced'),
+    'ɥ': ('approximant', 'labial-palatal', 'voiced'),
+    'ʜ': ('fricative', 'epiglottal', 'voiceless'),
+    'ʢ': ('fricative', 'epiglottal', 'voiced'),
+    'ʡ': ('plosive', 'epiglottal', 'voiceless'),
+    'ɕ': ('fricative', 'alveolo-palatal', 'voiceless'),
+    'ʑ': ('fricative', 'alveolo-palatal', 'voiced'),
+    'ɺ': ('lateral-tap', 'alveolar', 'voiced'),
+    'ɧ': ('fricative', 'postalveolar-velar', 'voiceless'),
+}
+
+#: Non-pulmonic consonants box of the 2020 chart (clicks and voiced
+#: implosives).  Ejectives are formed with the ʼ diacritic on any symbol.
+#: A bare click symbol denotes the tenuis (voiceless) click.
+NON_PULMONIC_SPECS: Dict[str, Tuple[str, str, str]] = {
+    # Clicks
+    'ʘ': ('click', 'bilabial', 'voiceless'),
+    'ǀ': ('click', 'dental', 'voiceless'),
+    'ǃ': ('click', 'alveolar', 'voiceless'),       # IPA: "(post)alveolar"
+    'ǂ': ('click', 'palatoalveolar', 'voiceless'),
+    'ǁ': ('lateral-click', 'alveolar', 'voiceless'),
+    # Voiced implosives
+    'ɓ': ('implosive', 'bilabial', 'voiced'),
+    'ɗ': ('implosive', 'alveolar', 'voiced'),      # IPA: "dental/alveolar"
+    'ʄ': ('implosive', 'palatal', 'voiced'),
+    'ɠ': ('implosive', 'velar', 'voiced'),
+    'ʛ': ('implosive', 'uvular', 'voiced'),
+}
+
+AIRSTREAM: Dict[str, str] = {
+    'click': 'velaric ingressive',
+    'lateral-click': 'velaric ingressive',
+    'implosive': 'glottalic ingressive',
+}
+
+#: Official names that do not follow the "<voicing> <place> <manner>" pattern.
+NAME_OVERRIDES: Dict[str, str] = {
+    'ʔ': 'Glottal plosive (glottal stop)',
+    'ʡ': 'Epiglottal plosive',
+    'ⱱ': 'Voiced labiodental flap',
+    'ɽ': 'Voiced retroflex flap',
+    'ɺ': 'Voiced alveolar lateral flap',
+    'ɧ': "Simultaneous ʃ and x (Swedish 'sj' sound)",
+    'ə': 'Mid central vowel (schwa)',
+    'ʘ': 'Bilabial click',
+    'ǀ': 'Dental click',
+    'ǃ': '(Post)alveolar click',
+    'ǂ': 'Palatoalveolar click',
+    'ǁ': 'Alveolar lateral click',
+    'ɗ': 'Voiced dental/alveolar implosive',
+}
+
+
+def _vowel_name(height: str, backness: str, roundedness: str) -> str:
+    parts = [height, backness] + ([] if roundedness == 'unspecified' else [roundedness])
+    return (' '.join(parts) + ' vowel').capitalize()
+
+
+def _consonant_name(manner: str, place: str, voicing: str) -> str:
+    manner_name = manner.replace('-', ' ')
+    return f"{voicing} {place} {manner_name}".capitalize()
+
+
+def segment_name(symbol: str) -> str:
+    """Official descriptive name of an inventory symbol."""
+    if symbol in NAME_OVERRIDES:
+        return NAME_OVERRIDES[symbol]
+    if symbol in VOWEL_SPECS:
+        return _vowel_name(*VOWEL_SPECS[symbol])
+    return _consonant_name(*ALL_CONSONANT_SPECS[symbol])
+
+
+ALL_CONSONANT_SPECS: Dict[str, Tuple[str, str, str]] = {
+    **PULMONIC_SPECS, **OTHER_SPECS, **NON_PULMONIC_SPECS,
+}
+
+
+def consonant_category(symbol: str) -> str:
+    """'pulmonic', 'other' or 'non-pulmonic'."""
+    if symbol in PULMONIC_SPECS:
+        return 'pulmonic'
+    if symbol in OTHER_SPECS:
+        return 'other'
+    return 'non-pulmonic'
+
+
+# =============================================================================
+# DISPLAY COORDINATES
+# =============================================================================
+
+def _vowel_display_xy(symbol: str) -> Tuple[float, float]:
+    height, backness, roundedness = VOWEL_SPECS[symbol]
+    x, y = vowel_point(height, backness)
+    has_partner = any(
+        s != symbol and h == height and b == backness
+        for s, (h, b, _) in VOWEL_SPECS.items()
+    )
+    if has_partner:
+        x += -ROUNDING_OFFSET if roundedness == 'unrounded' else ROUNDING_OFFSET
+    return (round(x, 4), y)
+
+
+def _consonant_display_xy(symbol: str) -> Tuple[float, float]:
+    manner, place, voicing = ALL_CONSONANT_SPECS[symbol]
+    x, y = consonant_point(manner, place)
+    x += -VOICING_OFFSET if voicing == 'voiceless' else VOICING_OFFSET
+    if symbol in OTHER_SPECS:
+        y += OTHER_SYMBOL_OFFSET
+    return (round(x, 4), y)
+
+
+# =============================================================================
+# LEGACY TABLES: symbol -> (x, y, f1, f2, f3, description)
+# =============================================================================
+
+IPA_VOWELS: Dict[str, Tuple] = {
+    s: (*_vowel_display_xy(s), *VOWEL_SPECS[s], segment_name(s)) for s in VOWEL_SPECS
+}
+#: Pulmonic consonant chart (what ``plot_consonant_chart`` draws).
+IPA_CONSONANTS: Dict[str, Tuple] = {
+    s: (*_consonant_display_xy(s), *PULMONIC_SPECS[s], segment_name(s)) for s in PULMONIC_SPECS
+}
+IPA_OTHER_CONSONANTS: Dict[str, Tuple] = {
+    s: (*_consonant_display_xy(s), *OTHER_SPECS[s], segment_name(s)) for s in OTHER_SPECS
+}
+IPA_NON_PULMONIC: Dict[str, Tuple] = {
+    s: (*_consonant_display_xy(s), *NON_PULMONIC_SPECS[s], segment_name(s))
+    for s in NON_PULMONIC_SPECS
+}
+#: Every consonant symbol of the chart (pulmonic + other + non-pulmonic).
+ALL_CONSONANTS: Dict[str, Tuple] = {**IPA_CONSONANTS, **IPA_OTHER_CONSONANTS, **IPA_NON_PULMONIC}
+
+# =============================================================================
+# DIACRITICS, SUPRASEGMENTALS, TONES (IPA 2020)
+# =============================================================================
+# Each diacritic: name, distinctive-feature changes, and optional special
+# handling ('effect') applied in ``features.py``.  Feature values: +1 / -1 / 0.
+
+DIACRITICS: Dict[str, Dict] = {
+    # Phonation
+    '̥': {'name': 'voiceless', 'features': {'voice': -1}},
+    '̊': {'name': 'voiceless', 'features': {'voice': -1}},   # ring above (for descenders: ŋ̊)
+    '̬': {'name': 'voiced', 'features': {'voice': +1}},
+    'ʰ': {'name': 'aspirated', 'features': {'spread_glottis': +1}},
+    'ʱ': {'name': 'breathy-voiced aspirated', 'features': {'spread_glottis': +1, 'voice': +1}},
+    '̤': {'name': 'breathy voiced', 'features': {'voice': +1, 'spread_glottis': +1}},
+    '̰': {'name': 'creaky voiced', 'features': {'voice': +1, 'constricted_glottis': +1}},
+    'ʼ': {'name': 'ejective', 'features': {'constricted_glottis': +1, 'voice': -1},
+          'effect': 'ejective'},
+    # Rounding
+    '̹': {'name': 'more rounded', 'features': {}},
+    '̜': {'name': 'less rounded', 'features': {}},
+    # Tongue position
+    '̟': {'name': 'advanced', 'features': {}, 'shift': (-0.15, 0.0)},
+    '̠': {'name': 'retracted', 'features': {}, 'shift': (0.15, 0.0)},
+    '̈': {'name': 'centralized', 'features': {}, 'effect': 'centralize'},
+    '̽': {'name': 'mid-centralized', 'features': {}, 'effect': 'mid-centralize'},
+    '̝': {'name': 'raised', 'features': {}, 'shift': (0.0, -0.15), 'effect': 'raise'},
+    '̞': {'name': 'lowered', 'features': {}, 'shift': (0.0, 0.15), 'effect': 'lower'},
+    '̘': {'name': 'advanced tongue root', 'features': {'tense': +1}},
+    '̙': {'name': 'retracted tongue root', 'features': {'tense': -1}},
+    # Syllabicity
+    '̩': {'name': 'syllabic', 'features': {'syllabic': +1}},
+    '̍': {'name': 'syllabic', 'features': {'syllabic': +1}},  # above, for descenders
+    '̯': {'name': 'non-syllabic', 'features': {'syllabic': -1}},
+    '̑': {'name': 'non-syllabic', 'features': {'syllabic': -1}},
+    # Secondary articulation
+    'ʷ': {'name': 'labialized', 'features': {'labial': +1, 'round': +1}},
+    'ʲ': {'name': 'palatalized', 'features': {'dorsal': +1, 'high': +1, 'low': -1,
+                                               'front': +1, 'back': -1}},
+    'ˠ': {'name': 'velarized', 'features': {'dorsal': +1, 'high': +1, 'low': -1,
+                                             'front': -1, 'back': +1}},
+    'ˤ': {'name': 'pharyngealized', 'features': {'dorsal': +1, 'high': -1, 'low': +1,
+                                                  'front': -1, 'back': +1}},
+    '̴': {'name': 'velarized or pharyngealized', 'features': {'dorsal': +1, 'front': -1,
+                                                                    'back': +1}},
+    '˞': {'name': 'rhotacized', 'features': {'coronal': +1, 'anterior': -1,
+                                              'distributed': -1}},
+    # Place refinements
+    '̪': {'name': 'dental', 'features': {}, 'effect': 'dental'},
+    '̺': {'name': 'apical', 'features': {'distributed': -1}},
+    '̻': {'name': 'laminal', 'features': {'distributed': +1}},
+    '̼': {'name': 'linguolabial', 'features': {'labial': +1, 'coronal': +1,
+                                                     'anterior': +1}},
+    # Nasality and release
+    '̃': {'name': 'nasalized', 'features': {'nasal': +1}},
+    'ⁿ': {'name': 'nasal release', 'features': {}},
+    'ˡ': {'name': 'lateral release', 'features': {}},
+    '̚': {'name': 'no audible release', 'features': {}},
+    # Length (segmental, so attached to the segment)
+    'ː': {'name': 'long', 'features': {'long': +1}},
+    'ˑ': {'name': 'half-long', 'features': {'long': 0}},
+    '̆': {'name': 'extra-short', 'features': {'long': -1}},
+}
+
+#: Tone diacritics: recorded on the segment, no segmental feature change.
+TONE_DIACRITICS: Dict[str, str] = {
+    '̋': 'extra high tone',
+    '́': 'high tone',
+    '̄': 'mid tone',
+    '̀': 'low tone',
+    '̏': 'extra low tone',
+    '̌': 'rising tone',
+    '̂': 'falling tone',
+    '᷄': 'high rising tone',
+    '᷅': 'low rising tone',
+    '᷈': 'rising-falling tone',
+}
+
+#: Tone letters (Chao letters).  Consecutive letters form one contour token.
+TONE_LETTERS: Dict[str, str] = {
+    '˥': 'extra high', '˦': 'high', '˧': 'mid', '˨': 'low', '˩': 'extra low',
+}
+
+#: Free-standing prosodic symbols.
+SUPRASEGMENTALS: Dict[str, str] = {
+    'ˈ': 'primary stress',
+    'ˌ': 'secondary stress',
+    '|': 'minor (foot) group',
+    '‖': 'major (intonation) group',
+    '.': 'syllable break',
+    '‿': 'linking (absence of a break)',
+    'ꜜ': 'downstep',
+    'ꜛ': 'upstep',
+    '↗': 'global rise',
+    '↘': 'global fall',
+}
+
+#: Ties: join two symbols into one segment (affricate, double articulation,
+#: diphthong).
+TIE_BARS = ('͡', '͜')
+
+#: Transcription delimiters that carry no segmental content.
+DELIMITERS = frozenset('/[]⟨⟩')
+
+#: Diacritics written as spacing modifier letters (they follow the base).
+SPACING_DIACRITICS = frozenset(c for c in DIACRITICS if len(c) == 1 and not
+                               (0x0300 <= ord(c) <= 0x036F))
+
+#: Common non-standard, obsolete or look-alike characters and their IPA
+#: equivalents.  Applied before tokenizing.
+SYMBOL_ALIASES: Dict[str, str] = {
+    'g': 'ɡ',           # ASCII g -> IPA script g (U+0261)
+    ':': 'ː',           # ASCII colon -> length mark
+    'ɚ': 'ə˞',          # r-coloured schwa
+    'ɝ': 'ɜ˞',          # r-coloured open-mid central vowel
+    'ɫ': 'lˠ',          # velarized alveolar lateral ("dark l")
+    'ʦ': 't͡s', 'ʣ': 'd͡z', 'ʧ': 't͡ʃ', 'ʤ': 'd͡ʒ', 'ʨ': 't͡ɕ', 'ʥ': 'd͡ʑ',  # withdrawn ligatures
+    'ʇ': 'ǀ', 'ʗ': 'ǃ', 'ʖ': 'ǁ',   # withdrawn click letters
+    'ɩ': 'ɪ', 'ɷ': 'ʊ',            # withdrawn vowel letters
+    'ǝ': 'ə',           # U+01DD turned e -> schwa
+    'ε': 'ɛ',           # Greek epsilon
+    'α': 'ɑ',           # Greek alpha
+    'ɼ': 'r̝',           # withdrawn: raised alveolar trill
+    'ʿ': 'ʕ', 'ʾ': 'ʔ',  # Semitist half rings
+    '’': 'ʼ',           # right single quotation mark used as ejective
+    'ˁ': 'ˤ',      # modifier reversed glottal stop -> pharyngealized
 }
 
 # =============================================================================
-# ARTICULATORY FEATURE MAPPINGS
+# CATEGORICAL FEATURE SCALES (legacy, used by the chart-distance component)
 # =============================================================================
-# These map categorical features to numerical values for similarity calculations
-# IMPORTANT: Vowels and consonants use SEPARATE coordinate systems
 
 ARTICULATORY_FEATURES = {
-    # Vowel features (trapezoid coordinate system)
-    'vowel_height': {
-        'close': 0.0,
-        'near-close': 0.5,
-        'close-mid': 1.0,
-        'mid': 1.5,
-        'open-mid': 2.0,
-        'near-open': 2.5,
-        'open': 3.0
-    },
-    'vowel_backness': {
-        'front': 0.0,
-        'near-front': 0.3,
-        'central': 1.0,
-        'near-back': 1.7,
-        'back': 2.0
-    },
-    'vowel_roundedness': {
-        'unrounded': 0,
-        'rounded': 1
-    },
-    
-    # Consonant features (grid coordinate system)
-    'consonant_place': {
-        'bilabial': 0,
-        'labiodental': 1,
-        'dental': 2,
-        'alveolar': 3,
-        'postalveolar': 4,
-        'retroflex': 5,
-        'palatal': 6,
-        'velar': 7,
-        'uvular': 8,
-        'pharyngeal': 9,
-        'glottal': 10
-    },
-    'consonant_manner': {
-        'plosive': 0,
-        'nasal': 1,
-        'trill': 2,
-        'tap': 3,
-        'fricative': 4,
-        'lateral-fricative': 5,
-        'approximant': 6,
-        'lateral-approximant': 7
-    },
-    'consonant_voicing': {
-        'voiceless': 0,
-        'voiced': 1
-    }
+    'vowel_height': dict(HEIGHT_Y),
+    'vowel_backness': {b: 2 * f for b, f in BACKNESS_FRACTION.items()},
+    'vowel_roundedness': {'unrounded': 0, 'unspecified': 0.5, 'rounded': 1},
+    'consonant_place': dict(PLACE_X),
+    'consonant_manner': dict(MANNER_Y),
+    'consonant_voicing': {'voiceless': 0, 'voiced': 1},
 }
 
 # =============================================================================
 # COORDINATE SYSTEM METADATA
 # =============================================================================
-# Information about the coordinate systems for proper scaling and visualization
 
 VOWEL_COORD_INFO = {
     'x_label': 'Backness',
     'y_label': 'Height',
-    'x_range': (0, 2.2),  # Front to Back
-    'y_range': (0, 3.2),  # Close to Open (inverted for display)
+    'x_range': (-0.2, 2.3),
+    'y_range': (-0.3, 3.3),   # displayed inverted: close at the top
     'shape': 'trapezoid',
     'x_ticks': [(0, 'Front'), (1, 'Central'), (2, 'Back')],
-    'y_ticks': [(0, 'Close'), (1, 'Close-mid'), (2, 'Open-mid'), (3, 'Open')]
+    'y_ticks': [(0, 'Close'), (1, 'Close-mid'), (2, 'Open-mid'), (3, 'Open')],
 }
 
 CONSONANT_COORD_INFO = {
     'x_label': 'Place of Articulation',
     'y_label': 'Manner of Articulation',
     'x_range': (-0.5, 10.5),
-    'y_range': (-0.5, 7.5),
+    'y_range': (-0.5, 7.5),   # displayed inverted: plosive row at the top
     'shape': 'grid',
-    'x_ticks': [
-        (0, 'Bilabial'), (1, 'Labiodental'), (2, 'Dental'), (3, 'Alveolar'),
-        (4, 'Postalveolar'), (5, 'Retroflex'), (6, 'Palatal'), (7, 'Velar'),
-        (8, 'Uvular'), (9, 'Pharyngeal'), (10, 'Glottal')
-    ],
+    'x_ticks': [(i, p.capitalize()) for i, p in enumerate(CONSONANT_PLACES)],
     'y_ticks': [
-        (0, 'Plosive'), (1, 'Nasal'), (2, 'Trill'), (3, 'Tap/Flap'),
-        (4, 'Fricative'), (5, 'Lat. Fricative'), (6, 'Approximant'), (7, 'Lat. Approximant')
-    ]
+        (0, 'Plosive'), (1, 'Nasal'), (2, 'Trill'), (3, 'Tap or Flap'),
+        (4, 'Fricative'), (5, 'Lateral fricative'), (6, 'Approximant'),
+        (7, 'Lateral approximant'),
+    ],
 }
+
+
+def symbol_kind(symbol: str) -> Optional[str]:
+    """'vowel', 'consonant' or None for a bare inventory symbol."""
+    if symbol in VOWEL_SPECS:
+        return 'vowel'
+    if symbol in ALL_CONSONANT_SPECS:
+        return 'consonant'
+    return None

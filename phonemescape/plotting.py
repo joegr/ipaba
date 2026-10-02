@@ -1,295 +1,229 @@
 """
-2D plotting functionality for IPA phoneme visualization.
-Based on official IPA chart (2020 revision).
+2D plotting of IPA segments, following the IPA chart (2020 revision).
 
-Vowels and consonants are plotted on SEPARATE coordinate planes.
+Vowels (trapezoid) and consonants (pulmonic grid) are always drawn on
+SEPARATE planes.  Both charts are drawn in the official orientation: close
+vowels and the plosive row at the top.
 """
 
-import matplotlib.pyplot as plt
+from typing import Dict, Iterable, List, Optional, Set, Tuple
+
 import matplotlib.patches as patches
+import matplotlib.pyplot as plt
 import numpy as np
-from typing import Dict, List, Tuple, Optional
-from .data import IPA_VOWELS, IPA_CONSONANTS, VOWEL_COORD_INFO, CONSONANT_COORD_INFO
+
+from .data import (
+    CONSONANT_COORD_INFO, HEIGHT_Y, IPA_CONSONANTS, IPA_VOWELS, VOWEL_COORD_INFO,
+    VOWEL_MAX_Y, VOWEL_TRAPEZOID, vowel_back_edge, vowel_central_x, vowel_front_edge,
+)
+from .segments import Segment, get_segment
+
+SHORT_PLACE_LABELS = ['Bilab.', 'Labiod.', 'Dent.', 'Alv.', 'Postalv.', 'Retro.',
+                      'Pal.', 'Vel.', 'Uv.', 'Phar.', 'Glot.']
+SHORT_MANNER_LABELS = ['Plosive', 'Nasal', 'Trill', 'Tap/Flap', 'Fricative',
+                       'Lat. fric.', 'Approx.', 'Lat. approx.']
+
+
+def _bases(symbols: Optional[Iterable[str]]) -> Set[str]:
+    """Base chart symbols of the given segments (so 'aː' highlights 'a')."""
+    out: Set[str] = set()
+    for s in symbols or []:
+        try:
+            out.update(get_segment(s).parts)
+        except ValueError:
+            continue
+    return out
 
 
 class IPAPlotter:
-    """Handles 2D plotting of IPA phonemes on vowel and consonant charts."""
-    
-    def __init__(self):
+    """Handles 2D plotting of IPA segments on vowel and consonant charts."""
+
+    def __init__(self) -> None:
         self.fig_size = (12, 8)
         self.vowel_colors = {
-            'unrounded': '#FF6B6B',  # Red for unrounded
-            'rounded': '#4ECDC4'      # Teal for rounded
+            'unrounded': '#FF6B6B',
+            'rounded': '#4ECDC4',
+            'unspecified': '#C9A0DC',
         }
         self.consonant_colors = {
-            'voiceless': '#95A5A6',   # Gray for voiceless
-            'voiced': '#3498DB'       # Blue for voiced
+            'voiceless': '#95A5A6',
+            'voiced': '#3498DB',
         }
-    
-    def plot_vowel_chart(self, 
-                        highlight_phonemes: Optional[List[str]] = None,
-                        show_grid: bool = True,
-                        title: str = "IPA Vowel Chart (Trapezoid)") -> plt.Figure:
-        """
-        Create a 2D plot of IPA vowels using the official trapezoid layout.
-        
-        Args:
-            highlight_phonemes: List of vowel symbols to highlight
-            show_grid: Whether to show grid lines
-            title: Plot title
-            
-        Returns:
-            matplotlib Figure object
-        """
-        fig, ax = plt.subplots(figsize=self.fig_size)
-        
-        # Draw trapezoid outline
-        trapezoid_x = [0, 2, 2.1, 0.6, 0]
-        trapezoid_y = [0, 0, 3, 3, 0]
-        ax.plot(trapezoid_x, trapezoid_y, 'k-', linewidth=1, alpha=0.5)
-        
-        # Draw horizontal lines for height levels
-        for y_val in [0, 1, 2, 3]:
-            # Calculate trapezoid width at this height
-            left_x = 0 + (0.6 - 0) * (y_val / 3)
-            right_x = 2 + (2.1 - 2) * (y_val / 3)
-            ax.plot([left_x, right_x], [y_val, y_val], 'k-', linewidth=0.5, alpha=0.3)
-        
-        # Plot vowels
-        for symbol, (x, y, height, backness, roundedness, description) in IPA_VOWELS.items():
-            color = self.vowel_colors[roundedness]
-            size = 400 if highlight_phonemes and symbol in highlight_phonemes else 250
-            alpha = 1.0 if highlight_phonemes and symbol in highlight_phonemes else 0.7
-            
-            ax.scatter(x, y, s=size, c=color, alpha=alpha, edgecolors='black', linewidth=1.5, zorder=5)
-            ax.annotate(symbol, (x, y), fontsize=14, ha='center', va='center', fontweight='bold', zorder=6)
-        
-        # Set up axes - Y inverted so Close is at top
-        ax.set_xlim(-0.2, 2.4)
-        ax.set_ylim(3.3, -0.3)  # Inverted: Close at top, Open at bottom
-        ax.set_xlabel('Backness (Front → Back)', fontsize=12)
-        ax.set_ylabel('Height (Close → Open)', fontsize=12)
-        ax.set_title(title, fontsize=14, fontweight='bold')
-        
-        # Add grid
+
+    # ------------------------------------------------------------------
+    # axes set-up (public so callers can build their own figures)
+    # ------------------------------------------------------------------
+
+    def setup_vowel_axes(self, ax: plt.Axes, show_grid: bool = True) -> None:
+        """Draw the trapezoid, its guide lines and labels on ``ax``."""
+        xs, ys = zip(*(VOWEL_TRAPEZOID + VOWEL_TRAPEZOID[:1]))
+        ax.plot(xs, ys, 'k-', linewidth=1.2, alpha=0.6)
+        for y in (HEIGHT_Y['close-mid'], HEIGHT_Y['open-mid']):
+            ax.plot([vowel_front_edge(y), vowel_back_edge(y)], [y, y],
+                    'k-', linewidth=0.6, alpha=0.3)
+        ax.plot([vowel_central_x(0), vowel_central_x(VOWEL_MAX_Y)], [0, VOWEL_MAX_Y],
+                'k-', linewidth=0.6, alpha=0.3)
+        ax.set_xlim(*VOWEL_COORD_INFO['x_range'])
+        ax.set_ylim(VOWEL_COORD_INFO['y_range'][1], VOWEL_COORD_INFO['y_range'][0])
+        ax.set_xticks([vowel_front_edge(0), vowel_central_x(0), vowel_back_edge(0)])
+        ax.set_xticklabels([label for _, label in VOWEL_COORD_INFO['x_ticks']])
+        ax.set_yticks([t for t, _ in VOWEL_COORD_INFO['y_ticks']])
+        ax.set_yticklabels([label for _, label in VOWEL_COORD_INFO['y_ticks']])
+        ax.set_xlabel('Backness (Front → Back)')
+        ax.set_ylabel('Height (Close → Open)')
+        ax.grid(show_grid, alpha=0.15)
+
+    def setup_consonant_axes(self, ax: plt.Axes, short_labels: bool = False,
+                             show_grid: bool = True) -> None:
+        """Draw the pulmonic grid and labels on ``ax``."""
         if show_grid:
-            ax.grid(True, alpha=0.2)
-        
-        # Add axis labels
-        ax.set_xticks([0, 1, 2])
-        ax.set_xticklabels(['Front', 'Central', 'Back'])
-        ax.set_yticks([0, 1, 2, 3])
-        ax.set_yticklabels(['Close', 'Close-mid', 'Open-mid', 'Open'])
-        
-        # Add legend
-        legend_elements = [
-            patches.Patch(color=self.vowel_colors['unrounded'], label='Unrounded'),
-            patches.Patch(color=self.vowel_colors['rounded'], label='Rounded')
-        ]
-        ax.legend(handles=legend_elements, loc='lower right')
-        
-        plt.tight_layout()
-        return fig
-    
-    def plot_consonant_chart(self,
-                           highlight_phonemes: Optional[List[str]] = None,
-                           show_grid: bool = True,
-                           title: str = "IPA Consonant Chart (Pulmonic)") -> plt.Figure:
-        """
-        Create a 2D plot of IPA consonants using the official grid layout.
-        
-        Args:
-            highlight_phonemes: List of consonant symbols to highlight
-            show_grid: Whether to show grid lines
-            title: Plot title
-            
-        Returns:
-            matplotlib Figure object
-        """
-        fig, ax = plt.subplots(figsize=(14, 8))
-        
-        # Draw grid lines for the table structure
-        for x in range(12):
-            ax.axvline(x - 0.5, color='gray', linewidth=0.5, alpha=0.3)
-        for y in range(9):
-            ax.axhline(y - 0.5, color='gray', linewidth=0.5, alpha=0.3)
-        
-        # Plot consonants
-        for symbol, (x, y, manner, place, voicing, description) in IPA_CONSONANTS.items():
-            color = self.consonant_colors[voicing]
-            size = 350 if highlight_phonemes and symbol in highlight_phonemes else 220
-            alpha = 1.0 if highlight_phonemes and symbol in highlight_phonemes else 0.7
-            
-            ax.scatter(x, y, s=size, c=color, alpha=alpha, edgecolors='black', linewidth=1.5, zorder=5)
-            ax.annotate(symbol, (x, y), fontsize=11, ha='center', va='center', fontweight='bold', zorder=6)
-        
-        # Set up axes
-        ax.set_xlim(-0.5, 10.5)
-        ax.set_ylim(-0.5, 7.5)
-        ax.set_xlabel('Place of Articulation (Front → Back)', fontsize=12)
-        ax.set_ylabel('Manner of Articulation', fontsize=12)
-        ax.set_title(title, fontsize=14, fontweight='bold')
-        
-        # Add axis labels
-        place_labels = ['Bilabial', 'Labiodental', 'Dental', 'Alveolar', 
-                       'Postalveolar', 'Retroflex', 'Palatal', 'Velar', 'Uvular', 'Pharyngeal', 'Glottal']
-        ax.set_xticks(range(0, 11))
-        ax.set_xticklabels(place_labels, rotation=45, ha='right')
-        
-        manner_labels = ['Plosive', 'Nasal', 'Trill', 'Tap/Flap', 'Fricative', 
-                        'Lat. Fricative', 'Approximant', 'Lat. Approximant']
-        ax.set_yticks(range(0, 8))
-        ax.set_yticklabels(manner_labels)
-        
-        # Add legend
-        legend_elements = [
-            patches.Patch(color=self.consonant_colors['voiceless'], label='Voiceless'),
-            patches.Patch(color=self.consonant_colors['voiced'], label='Voiced')
-        ]
-        ax.legend(handles=legend_elements, loc='upper right')
-        
-        plt.tight_layout()
-        return fig
-    
-    def plot_combined_chart(self,
-                          highlight_vowels: Optional[List[str]] = None,
-                          highlight_consonants: Optional[List[str]] = None,
-                          show_grid: bool = True,
-                          title: str = "IPA Combined Chart") -> plt.Figure:
-        """
-        Create a combined plot showing both vowels and consonants on SEPARATE planes.
-        
-        Args:
-            highlight_vowels: List of vowel symbols to highlight
-            highlight_consonants: List of consonant symbols to highlight
-            show_grid: Whether to show grid lines
-            title: Plot title
-            
-        Returns:
-            matplotlib Figure object
-        """
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 8))
-        
-        # ===== VOWEL TRAPEZOID (left) =====
-        # Draw trapezoid outline
-        trapezoid_x = [0, 2, 2.1, 0.6, 0]
-        trapezoid_y = [0, 0, 3, 3, 0]
-        ax1.plot(trapezoid_x, trapezoid_y, 'k-', linewidth=1, alpha=0.5)
-        
-        # Plot vowels
-        for symbol, (x, y, height, backness, roundedness, description) in IPA_VOWELS.items():
-            color = self.vowel_colors[roundedness]
-            size = 350 if highlight_vowels and symbol in highlight_vowels else 200
-            alpha = 1.0 if highlight_vowels and symbol in highlight_vowels else 0.7
-            
-            ax1.scatter(x, y, s=size, c=color, alpha=alpha, edgecolors='black', linewidth=1, zorder=5)
-            ax1.annotate(symbol, (x, y), fontsize=12, ha='center', va='center', fontweight='bold', zorder=6)
-        
-        ax1.set_xlim(-0.2, 2.4)
-        ax1.set_ylim(3.3, -0.3)  # Inverted
-        ax1.set_xlabel('Backness', fontsize=11)
-        ax1.set_ylabel('Height', fontsize=11)
-        ax1.set_title('Vowels (Trapezoid)', fontsize=13, fontweight='bold')
-        ax1.set_xticks([0, 1, 2])
-        ax1.set_xticklabels(['Front', 'Central', 'Back'])
-        ax1.set_yticks([0, 1, 2, 3])
-        ax1.set_yticklabels(['Close', 'Close-mid', 'Open-mid', 'Open'])
-        ax1.grid(show_grid, alpha=0.2)
-        
-        # ===== CONSONANT GRID (right) =====
-        # Draw grid lines
-        for x in range(12):
-            ax2.axvline(x - 0.5, color='gray', linewidth=0.5, alpha=0.2)
-        for y in range(9):
-            ax2.axhline(y - 0.5, color='gray', linewidth=0.5, alpha=0.2)
-        
-        # Plot consonants
-        for symbol, (x, y, manner, place, voicing, description) in IPA_CONSONANTS.items():
-            color = self.consonant_colors[voicing]
-            size = 300 if highlight_consonants and symbol in highlight_consonants else 180
-            alpha = 1.0 if highlight_consonants and symbol in highlight_consonants else 0.7
-            
-            ax2.scatter(x, y, s=size, c=color, alpha=alpha, edgecolors='black', linewidth=1, zorder=5)
-            ax2.annotate(symbol, (x, y), fontsize=10, ha='center', va='center', fontweight='bold', zorder=6)
-        
-        ax2.set_xlim(-0.5, 10.5)
-        ax2.set_ylim(-0.5, 7.5)
-        ax2.set_xlabel('Place of Articulation', fontsize=11)
-        ax2.set_ylabel('Manner of Articulation', fontsize=11)
-        ax2.set_title('Consonants (Grid)', fontsize=13, fontweight='bold')
-        ax2.set_xticks(range(0, 11))
-        ax2.set_xticklabels(['Bilab.', 'Labiod.', 'Dent.', 'Alv.', 'Postalv.', 
-                            'Retrof.', 'Pal.', 'Vel.', 'Uv.', 'Phar.', 'Glot.'], 
+            for x in range(12):
+                ax.axvline(x - 0.5, color='gray', linewidth=0.5, alpha=0.3)
+            for y in range(9):
+                ax.axhline(y - 0.5, color='gray', linewidth=0.5, alpha=0.3)
+        ax.set_xlim(*CONSONANT_COORD_INFO['x_range'])
+        ax.set_ylim(CONSONANT_COORD_INFO['y_range'][1], CONSONANT_COORD_INFO['y_range'][0])
+        ax.set_xticks([t for t, _ in CONSONANT_COORD_INFO['x_ticks']])
+        ax.set_xticklabels(SHORT_PLACE_LABELS if short_labels else
+                           [label for _, label in CONSONANT_COORD_INFO['x_ticks']],
                            rotation=45, ha='right')
-        ax2.set_yticks(range(0, 8))
-        ax2.set_yticklabels(['Plosive', 'Nasal', 'Trill', 'Tap', 'Fricative', 'Lat.Fric.', 'Approx.', 'Lat.Appr.'])
-        
-        # Add legends
-        vowel_legend = [
-            patches.Patch(color=self.vowel_colors['unrounded'], label='Unrounded'),
-            patches.Patch(color=self.vowel_colors['rounded'], label='Rounded')
-        ]
-        consonant_legend = [
-            patches.Patch(color=self.consonant_colors['voiceless'], label='Voiceless'),
-            patches.Patch(color=self.consonant_colors['voiced'], label='Voiced')
-        ]
-        
-        ax1.legend(handles=vowel_legend, loc='lower right')
-        ax2.legend(handles=consonant_legend, loc='upper right')
-        
-        plt.suptitle(title, fontsize=15, fontweight='bold')
-        plt.tight_layout()
-        return fig
-    
-    def plot_similarity_network(self,
-                              phonemes: List[str],
-                              similarity_matrix: np.ndarray,
-                              threshold: float = 0.5,
-                              title: str = "Phoneme Similarity Network") -> plt.Figure:
-        """
-        Plot a network graph showing phoneme similarities.
-        
-        Args:
-            phonemes: List of phoneme symbols
-            similarity_matrix: Matrix of similarity values
-            threshold: Minimum similarity to show connection
-            title: Plot title
-            
-        Returns:
-            matplotlib Figure object
-        """
-        fig, ax = plt.subplots(figsize=(10, 8))
-        
-        # Create positions for phonemes based on their IPA coordinates
-        positions = {}
-        for i, phoneme in enumerate(phonemes):
-            if phoneme in IPA_VOWELS:
-                x, y, _, _, _, _ = IPA_VOWELS[phoneme]
-                positions[phoneme] = (x, y)
-            elif phoneme in IPA_CONSONANTS:
-                x, y, _, _, _, _ = IPA_CONSONANTS[phoneme]
-                positions[phoneme] = (x, y)
-        
-        # Plot edges (connections)
-        for i in range(len(phonemes)):
-            for j in range(i + 1, len(phonemes)):
-                similarity = similarity_matrix[i, j]
-                if similarity >= threshold:
-                    phoneme1, phoneme2 = phonemes[i], phonemes[j]
-                    if phoneme1 in positions and phoneme2 in positions:
-                        x1, y1 = positions[phoneme1]
-                        x2, y2 = positions[phoneme2]
-                        ax.plot([x1, x2], [y1, y2], 'gray', alpha=similarity, linewidth=similarity * 3)
-        
-        # Plot nodes (phonemes)
-        for phoneme, (x, y) in positions.items():
-            ax.scatter(x, y, s=300, c='lightblue', edgecolors='black', linewidth=2)
-            ax.annotate(phoneme, (x, y), fontsize=12, ha='center', va='center', fontweight='bold')
-        
+        ax.set_yticks([t for t, _ in CONSONANT_COORD_INFO['y_ticks']])
+        ax.set_yticklabels(SHORT_MANNER_LABELS if short_labels else
+                           [label for _, label in CONSONANT_COORD_INFO['y_ticks']])
+        ax.set_xlabel('Place of Articulation (Front → Back)')
+        ax.set_ylabel('Manner of Articulation')
+
+    def _draw_points(self, ax: plt.Axes, table: Dict[str, Tuple], colors: Dict[str, str],
+                     color_index: int, highlight: Set[str], sizes: Tuple[int, int],
+                     fontsize: int) -> None:
+        for symbol, row in table.items():
+            x, y = row[0], row[1]
+            hl = symbol in highlight
+            ax.scatter(x, y, s=sizes[1] if hl else sizes[0], c=colors[row[color_index]],
+                       alpha=1.0 if hl or not highlight else 0.45,
+                       edgecolors='black', linewidth=2.2 if hl else 1.0, zorder=5)
+            ax.annotate(symbol, (x, y), fontsize=fontsize, ha='center', va='center',
+                        fontweight='bold', zorder=6)
+
+    def _legend(self, ax: plt.Axes, colors: Dict[str, str], loc: str) -> None:
+        ax.legend(handles=[patches.Patch(color=c, label=k.capitalize())
+                           for k, c in colors.items()], loc=loc)
+
+    # ------------------------------------------------------------------
+    # charts
+    # ------------------------------------------------------------------
+
+    def plot_vowel_chart(self, highlight_phonemes: Optional[List[str]] = None,
+                         show_grid: bool = True,
+                         title: str = "IPA Vowel Chart (Trapezoid)") -> plt.Figure:
+        """The 28 vowels of the IPA chart on the trapezoid."""
+        fig, ax = plt.subplots(figsize=self.fig_size)
+        self.setup_vowel_axes(ax, show_grid)
+        self._draw_points(ax, IPA_VOWELS, self.vowel_colors, 4,
+                          _bases(highlight_phonemes), (250, 420), 14)
         ax.set_title(title, fontsize=14, fontweight='bold')
-        ax.set_xlabel('IPA Chart X Coordinate', fontsize=12)
-        ax.set_ylabel('IPA Chart Y Coordinate', fontsize=12)
-        ax.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
+        self._legend(ax, self.vowel_colors, 'lower left')
+        fig.tight_layout()
+        return fig
+
+    def plot_consonant_chart(self, highlight_phonemes: Optional[List[str]] = None,
+                             show_grid: bool = True,
+                             title: str = "IPA Consonant Chart (Pulmonic)") -> plt.Figure:
+        """The 59 pulmonic consonants on the chart grid."""
+        fig, ax = plt.subplots(figsize=(14, 8))
+        self.setup_consonant_axes(ax, show_grid=show_grid)
+        self._draw_points(ax, IPA_CONSONANTS, self.consonant_colors, 4,
+                          _bases(highlight_phonemes), (220, 360), 11)
+        ax.set_title(title, fontsize=14, fontweight='bold')
+        self._legend(ax, self.consonant_colors, 'lower right')
+        fig.tight_layout()
+        return fig
+
+    def plot_combined_chart(self, highlight_vowels: Optional[List[str]] = None,
+                            highlight_consonants: Optional[List[str]] = None,
+                            show_grid: bool = True,
+                            title: str = "IPA Combined Chart") -> plt.Figure:
+        """Vowels and pulmonic consonants side by side, on separate planes."""
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 8),
+                                       gridspec_kw={'width_ratios': [1, 1.4]})
+        self.setup_vowel_axes(ax1, show_grid)
+        self._draw_points(ax1, IPA_VOWELS, self.vowel_colors, 4,
+                          _bases(highlight_vowels), (200, 350), 12)
+        ax1.set_title('Vowels', fontsize=13, fontweight='bold')
+        self._legend(ax1, self.vowel_colors, 'lower left')
+
+        self.setup_consonant_axes(ax2, short_labels=True, show_grid=show_grid)
+        self._draw_points(ax2, IPA_CONSONANTS, self.consonant_colors, 4,
+                          _bases(highlight_consonants), (180, 300), 10)
+        ax2.set_title('Pulmonic consonants', fontsize=13, fontweight='bold')
+        self._legend(ax2, self.consonant_colors, 'lower right')
+
+        fig.suptitle(title, fontsize=15, fontweight='bold')
+        fig.tight_layout()
+        return fig
+
+    # ------------------------------------------------------------------
+    # networks
+    # ------------------------------------------------------------------
+
+    def draw_network(self, ax: plt.Axes, segments: List[Segment], matrix: np.ndarray,
+                     threshold: float, indices: List[int]) -> None:
+        """Nodes ``indices`` of one plane and the edges among them."""
+        for a in range(len(indices)):
+            for b in range(a + 1, len(indices)):
+                i, j = indices[a], indices[b]
+                sim = matrix[i, j]
+                if sim >= threshold:
+                    (x1, y1), (x2, y2) = segments[i].coordinates, segments[j].coordinates
+                    ax.plot([x1, x2], [y1, y2], color='gray', alpha=float(sim),
+                            linewidth=float(sim) * 3, zorder=2)
+        for i in indices:
+            x, y = segments[i].coordinates
+            ax.scatter(x, y, s=420, c='lightblue', edgecolors='black', linewidth=2, zorder=5)
+            ax.annotate(segments[i].symbol, (x, y), fontsize=12, ha='center', va='center',
+                        fontweight='bold', zorder=6)
+
+    def plot_similarity_network(self, phonemes: List[str], similarity_matrix: np.ndarray,
+                                threshold: float = 0.5,
+                                title: str = "Phoneme Similarity Network") -> plt.Figure:
+        """
+        Network of segments placed at their chart positions, with an edge
+        wherever similarity >= threshold.  Vowels and consonants are drawn on
+        their own planes; edges between a vowel and a consonant are drawn
+        dashed across the two panels.
+        """
+        segs = [get_segment(p) for p in phonemes]
+        v_idx = [i for i, s in enumerate(segs) if s.kind == 'vowel']
+        c_idx = [i for i, s in enumerate(segs) if s.kind == 'consonant']
+
+        if v_idx and c_idx:
+            fig, (axv, axc) = plt.subplots(1, 2, figsize=(18, 8),
+                                           gridspec_kw={'width_ratios': [1, 1.4]})
+        else:
+            fig, ax = plt.subplots(figsize=(10, 8) if v_idx else (14, 8))
+            axv = axc = ax
+        if v_idx:
+            self.setup_vowel_axes(axv)
+            self.draw_network(axv, segs, similarity_matrix, threshold, v_idx)
+        if c_idx:
+            self.setup_consonant_axes(axc, short_labels=bool(v_idx))
+            self.draw_network(axc, segs, similarity_matrix, threshold, c_idx)
+
+        if v_idx and c_idx:
+            for i in v_idx:
+                for j in c_idx:
+                    sim = similarity_matrix[i, j]
+                    if sim >= threshold:
+                        fig.add_artist(patches.ConnectionPatch(
+                            xyA=segs[i].coordinates, coordsA=axv.transData,
+                            xyB=segs[j].coordinates, coordsB=axc.transData,
+                            color='darkorange', linestyle='--', alpha=float(sim),
+                            linewidth=float(sim) * 2, zorder=1))
+            axv.set_title('Vowels', fontweight='bold')
+            axc.set_title('Consonants', fontweight='bold')
+            fig.suptitle(f"{title}  (dashed: vowel–consonant edges)",
+                         fontsize=14, fontweight='bold')
+        else:
+            axv.set_title(title, fontsize=14, fontweight='bold')
+        fig.tight_layout()
         return fig
